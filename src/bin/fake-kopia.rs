@@ -1,3 +1,5 @@
+//! TODO document test binary
+
 use clap::{Parser, Subcommand};
 use std::fs;
 use std::process;
@@ -17,7 +19,7 @@ enum Commands {
         #[command(subcommand)]
         action: SnapshotAction,
     },
-    /// Repository operations  
+    /// Repository operations
     Repository {
         #[command(subcommand)]
         action: RepositoryAction,
@@ -44,15 +46,15 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Snapshot { action } => handle_snapshot_command(action),
-        Commands::Repository { action } => handle_repository_command(action),
+        Commands::Snapshot { action } => handle_snapshot_command(&action),
+        Commands::Repository { action } => handle_repository_command(&action),
     }
 }
 
-fn handle_snapshot_command(action: SnapshotAction) {
+fn handle_snapshot_command(action: &SnapshotAction) {
     match action {
         SnapshotAction::List { json } => {
-            if json {
+            if *json {
                 print_sample_snapshots();
             } else {
                 eprintln!("fake-kopia only supports --json output for snapshot list");
@@ -62,7 +64,7 @@ fn handle_snapshot_command(action: SnapshotAction) {
     }
 }
 
-fn handle_repository_command(action: RepositoryAction) {
+fn handle_repository_command(action: &RepositoryAction) {
     match action {
         RepositoryAction::Status => {
             println!("Repository status: OK");
@@ -73,6 +75,7 @@ fn handle_repository_command(action: RepositoryAction) {
 
 fn print_sample_snapshots() {
     let sample_path = "src/sample_kopia-snapshot-list.json";
+    // TODO: report error via `eyre`
     match fs::read_to_string(sample_path) {
         Ok(content) => print!("{content}"),
         Err(_) => {

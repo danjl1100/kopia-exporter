@@ -5,6 +5,7 @@ use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[expect(missing_docs)] // no need to document all fields
 pub struct Snapshot {
     pub id: String,
     pub source: Source,
@@ -18,6 +19,7 @@ pub struct Snapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[expect(missing_docs)] // no need to document all fields
 pub struct Source {
     pub host: String,
     pub user_name: String,
@@ -26,6 +28,7 @@ pub struct Source {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[expect(missing_docs)] // no need to document all fields
 pub struct Stats {
     pub total_size: u64,
     pub excluded_total_size: u64,
@@ -41,6 +44,7 @@ pub struct Stats {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[expect(missing_docs)] // no need to document all fields
 pub struct RootEntry {
     pub name: String,
     #[serde(rename = "type")]
@@ -53,6 +57,7 @@ pub struct RootEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[expect(missing_docs)] // no need to document all fields
 pub struct Summary {
     pub size: u64,
     pub files: u32,
@@ -66,6 +71,7 @@ pub fn parse_snapshots(json_content: &str) -> Result<Vec<Snapshot>> {
     Ok(serde_json::from_str(json_content)?)
 }
 
+#[must_use]
 pub fn get_retention_counts(snapshots: &[Snapshot]) -> HashMap<String, u32> {
     let mut counts = HashMap::new();
 
@@ -236,6 +242,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::unreadable_literal)]
     fn test_parse_sample_data() {
         let sample_data = include_str!("sample_kopia-snapshot-list.json");
         let snapshots = parse_snapshots(sample_data).unwrap();
