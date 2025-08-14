@@ -1,8 +1,13 @@
-//! TODO document test binary
+//! A fake kopia binary for testing and development.
+//!
+//! This binary mimics the behavior of the real kopia CLI tool,
+//! providing sample JSON output for snapshot listings and basic
+//! repository status commands. Used primarily for testing the
+//! kopia-exporter without requiring a real kopia installation.
 
 use clap::{Parser, Subcommand};
+use eyre::Result;
 use std::fs;
-use std::process;
 
 #[derive(Parser)]
 #[command(name = "fake-kopia")]
@@ -42,45 +47,46 @@ enum RepositoryAction {
     Status,
 }
 
-fn main() {
+fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Snapshot { action } => handle_snapshot_command(&action),
-        Commands::Repository { action } => handle_repository_command(&action),
+        Commands::Snapshot { action } => handle_snapshot_command(&action)?,
+        Commands::Repository { action } => handle_repository_command(&action)?,
     }
+
+    Ok(())
 }
 
-fn handle_snapshot_command(action: &SnapshotAction) {
+fn handle_snapshot_command(action: &SnapshotAction) -> Result<()> {
     match action {
         SnapshotAction::List { json } => {
             if *json {
-                print_sample_snapshots();
+                print_sample_snapshots()
             } else {
-                eprintln!("fake-kopia only supports --json output for snapshot list");
-                process::exit(1);
+                eyre::bail!("fake-kopia only supports --json output for snapshot list");
             }
         }
     }
 }
 
-fn handle_repository_command(action: &RepositoryAction) {
+fn handle_repository_command(action: &RepositoryAction) -> Result<()> {
     match action {
         RepositoryAction::Status => {
             println!("Repository status: OK");
             println!("Connected to: fake-repository");
+            Ok(())
         }
     }
 }
 
-fn print_sample_snapshots() {
+fn print_sample_snapshots() -> Result<()> {
     let sample_path = "src/sample_kopia-snapshot-list.json";
-    // TODO: report error via `eyre`
-    match fs::read_to_string(sample_path) {
-        Ok(content) => print!("{content}"),
-        Err(_) => {
-            eprintln!("Error: Could not read sample data from {sample_path}");
-            process::exit(1);
-        }
-    }
+    let content = read_sample_data(sample_path)?;
+    print!("{content}");
+    Ok(())
+}
+
+fn read_sample_data(path: &str) -> Result<String> {
+    fs::read_to_string(path).map_err(|e| eyre::eyre!("Could not read sample data from {path}: {e}"))
 }
