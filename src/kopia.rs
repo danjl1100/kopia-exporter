@@ -1,0 +1,186 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Snapshot {
+    pub id: String,
+    pub source: Source,
+    pub description: String,
+    pub start_time: String,
+    pub end_time: String,
+    pub stats: Stats,
+    pub root_entry: RootEntry,
+    pub retention_reason: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Source {
+    pub host: String,
+    pub user_name: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Stats {
+    pub total_size: u64,
+    pub excluded_total_size: u64,
+    pub file_count: u32,
+    pub cached_files: u32,
+    pub non_cached_files: u32,
+    pub dir_count: u32,
+    pub excluded_file_count: u32,
+    pub excluded_dir_count: u32,
+    pub ignored_error_count: u32,
+    pub error_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RootEntry {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub entry_type: String,
+    pub mode: String,
+    pub mtime: String,
+    pub obj: String,
+    pub summ: Summary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Summary {
+    pub size: u64,
+    pub files: u32,
+    pub symlinks: u32,
+    pub dirs: u32,
+    pub max_time: String,
+    pub num_failed: u32,
+}
+
+pub fn parse_snapshots(json_content: &str) -> Result<Vec<Snapshot>, serde_json::Error> {
+    serde_json::from_str(json_content)
+}
+
+pub fn get_retention_counts(snapshots: &[Snapshot]) -> HashMap<String, u32> {
+    let mut counts = HashMap::new();
+    
+    for snapshot in snapshots {
+        for reason in &snapshot.retention_reason {
+            *counts.entry(reason.clone()).or_insert(0) += 1;
+        }
+    }
+    
+    counts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_single_snapshot() {
+        let json = r#"[
+            {
+                "id": "test123",
+                "source": {"host": "test", "userName": "user", "path": "/test"},
+                "description": "",
+                "startTime": "2025-08-14T00:00:00Z",
+                "endTime": "2025-08-14T00:01:00Z",
+                "stats": {
+                    "totalSize": 1000,
+                    "excludedTotalSize": 0,
+                    "fileCount": 10,
+                    "cachedFiles": 5,
+                    "nonCachedFiles": 5,
+                    "dirCount": 2,
+                    "excludedFileCount": 0,
+                    "excludedDirCount": 0,
+                    "ignoredErrorCount": 0,
+                    "errorCount": 0
+                },
+                "rootEntry": {
+                    "name": "test",
+                    "type": "d",
+                    "mode": "0755",
+                    "mtime": "2025-08-14T00:00:00Z",
+                    "obj": "obj123",
+                    "summ": {
+                        "size": 1000,
+                        "files": 10,
+                        "symlinks": 0,
+                        "dirs": 2,
+                        "maxTime": "2025-08-14T00:00:00Z",
+                        "numFailed": 0
+                    }
+                },
+                "retentionReason": ["latest-1", "daily-1"]
+            }
+        ]"#;
+        
+        let snapshots = parse_snapshots(json).unwrap();
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].id, "test123");
+        assert_eq!(snapshots[0].stats.total_size, 1000);
+        assert_eq!(snapshots[0].retention_reason, vec!["latest-1", "daily-1"]);
+    }
+
+    #[test]
+    fn test_retention_counts() {
+        let snapshots = vec![
+            Snapshot {
+                id: "1".to_string(),
+                source: Source { host: "test".to_string(), user_name: "user".to_string(), path: "/test".to_string() },
+                description: "".to_string(),
+                start_time: "2025-08-14T00:00:00Z".to_string(),
+                end_time: "2025-08-14T00:01:00Z".to_string(),
+                stats: Stats {
+                    total_size: 1000, excluded_total_size: 0, file_count: 10,
+                    cached_files: 5, non_cached_files: 5, dir_count: 2,
+                    excluded_file_count: 0, excluded_dir_count: 0,
+                    ignored_error_count: 0, error_count: 0,
+                },
+                root_entry: RootEntry {
+                    name: "test".to_string(), entry_type: "d".to_string(),
+                    mode: "0755".to_string(), mtime: "2025-08-14T00:00:00Z".to_string(),
+                    obj: "obj1".to_string(),
+                    summ: Summary {
+                        size: 1000, files: 10, symlinks: 0, dirs: 2,
+                        max_time: "2025-08-14T00:00:00Z".to_string(), num_failed: 0,
+                    },
+                },
+                retention_reason: vec!["latest-1".to_string(), "daily-1".to_string()],
+            },
+            Snapshot {
+                id: "2".to_string(),
+                source: Source { host: "test".to_string(), user_name: "user".to_string(), path: "/test".to_string() },
+                description: "".to_string(),
+                start_time: "2025-08-13T00:00:00Z".to_string(),
+                end_time: "2025-08-13T00:01:00Z".to_string(),
+                stats: Stats {
+                    total_size: 2000, excluded_total_size: 0, file_count: 20,
+                    cached_files: 10, non_cached_files: 10, dir_count: 4,
+                    excluded_file_count: 0, excluded_dir_count: 0,
+                    ignored_error_count: 0, error_count: 0,
+                },
+                root_entry: RootEntry {
+                    name: "test".to_string(), entry_type: "d".to_string(),
+                    mode: "0755".to_string(), mtime: "2025-08-13T00:00:00Z".to_string(),
+                    obj: "obj2".to_string(),
+                    summ: Summary {
+                        size: 2000, files: 20, symlinks: 0, dirs: 4,
+                        max_time: "2025-08-13T00:00:00Z".to_string(), num_failed: 0,
+                    },
+                },
+                retention_reason: vec!["daily-2".to_string()],
+            },
+        ];
+        
+        let counts = get_retention_counts(&snapshots);
+        assert_eq!(counts.get("latest-1"), Some(&1));
+        assert_eq!(counts.get("daily-1"), Some(&1));
+        assert_eq!(counts.get("daily-2"), Some(&1));
+    }
+}
