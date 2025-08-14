@@ -1,5 +1,7 @@
+use eyre::{Result, eyre};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,20 +62,37 @@ pub struct Summary {
     pub num_failed: u32,
 }
 
-pub fn parse_snapshots(json_content: &str) -> Result<Vec<Snapshot>, serde_json::Error> {
-    serde_json::from_str(json_content)
+pub fn parse_snapshots(json_content: &str) -> Result<Vec<Snapshot>> {
+    Ok(serde_json::from_str(json_content)?)
 }
 
 pub fn get_retention_counts(snapshots: &[Snapshot]) -> HashMap<String, u32> {
     let mut counts = HashMap::new();
-    
+
     for snapshot in snapshots {
         for reason in &snapshot.retention_reason {
             *counts.entry(reason.clone()).or_insert(0) += 1;
         }
     }
-    
+
     counts
+}
+
+pub fn get_snapshots_from_command(kopia_bin: &str) -> Result<Vec<Snapshot>> {
+    let output = Command::new(kopia_bin)
+        .args(["snapshot", "list", "--json"])
+        .output()?;
+
+    if !output.status.success() {
+        return Err(eyre!(
+            "kopia command failed with exit code: {}",
+            output.status.code().unwrap_or(-1)
+        ));
+    }
+
+    let stdout = String::from_utf8(output.stdout)?;
+    let snapshots = parse_snapshots(&stdout)?;
+    Ok(snapshots)
 }
 
 #[cfg(test)]
@@ -119,7 +138,7 @@ mod tests {
                 "retentionReason": ["latest-1", "daily-1"]
             }
         ]"#;
-        
+
         let snapshots = parse_snapshots(json).unwrap();
         assert_eq!(snapshots.len(), 1);
         assert_eq!(snapshots[0].id, "test123");
@@ -132,55 +151,108 @@ mod tests {
         let snapshots = vec![
             Snapshot {
                 id: "1".to_string(),
-                source: Source { host: "test".to_string(), user_name: "user".to_string(), path: "/test".to_string() },
+                source: Source {
+                    host: "test".to_string(),
+                    user_name: "user".to_string(),
+                    path: "/test".to_string(),
+                },
                 description: "".to_string(),
                 start_time: "2025-08-14T00:00:00Z".to_string(),
                 end_time: "2025-08-14T00:01:00Z".to_string(),
                 stats: Stats {
-                    total_size: 1000, excluded_total_size: 0, file_count: 10,
-                    cached_files: 5, non_cached_files: 5, dir_count: 2,
-                    excluded_file_count: 0, excluded_dir_count: 0,
-                    ignored_error_count: 0, error_count: 0,
+                    total_size: 1000,
+                    excluded_total_size: 0,
+                    file_count: 10,
+                    cached_files: 5,
+                    non_cached_files: 5,
+                    dir_count: 2,
+                    excluded_file_count: 0,
+                    excluded_dir_count: 0,
+                    ignored_error_count: 0,
+                    error_count: 0,
                 },
                 root_entry: RootEntry {
-                    name: "test".to_string(), entry_type: "d".to_string(),
-                    mode: "0755".to_string(), mtime: "2025-08-14T00:00:00Z".to_string(),
+                    name: "test".to_string(),
+                    entry_type: "d".to_string(),
+                    mode: "0755".to_string(),
+                    mtime: "2025-08-14T00:00:00Z".to_string(),
                     obj: "obj1".to_string(),
                     summ: Summary {
-                        size: 1000, files: 10, symlinks: 0, dirs: 2,
-                        max_time: "2025-08-14T00:00:00Z".to_string(), num_failed: 0,
+                        size: 1000,
+                        files: 10,
+                        symlinks: 0,
+                        dirs: 2,
+                        max_time: "2025-08-14T00:00:00Z".to_string(),
+                        num_failed: 0,
                     },
                 },
                 retention_reason: vec!["latest-1".to_string(), "daily-1".to_string()],
             },
             Snapshot {
                 id: "2".to_string(),
-                source: Source { host: "test".to_string(), user_name: "user".to_string(), path: "/test".to_string() },
+                source: Source {
+                    host: "test".to_string(),
+                    user_name: "user".to_string(),
+                    path: "/test".to_string(),
+                },
                 description: "".to_string(),
                 start_time: "2025-08-13T00:00:00Z".to_string(),
                 end_time: "2025-08-13T00:01:00Z".to_string(),
                 stats: Stats {
-                    total_size: 2000, excluded_total_size: 0, file_count: 20,
-                    cached_files: 10, non_cached_files: 10, dir_count: 4,
-                    excluded_file_count: 0, excluded_dir_count: 0,
-                    ignored_error_count: 0, error_count: 0,
+                    total_size: 2000,
+                    excluded_total_size: 0,
+                    file_count: 20,
+                    cached_files: 10,
+                    non_cached_files: 10,
+                    dir_count: 4,
+                    excluded_file_count: 0,
+                    excluded_dir_count: 0,
+                    ignored_error_count: 0,
+                    error_count: 0,
                 },
                 root_entry: RootEntry {
-                    name: "test".to_string(), entry_type: "d".to_string(),
-                    mode: "0755".to_string(), mtime: "2025-08-13T00:00:00Z".to_string(),
+                    name: "test".to_string(),
+                    entry_type: "d".to_string(),
+                    mode: "0755".to_string(),
+                    mtime: "2025-08-13T00:00:00Z".to_string(),
                     obj: "obj2".to_string(),
                     summ: Summary {
-                        size: 2000, files: 20, symlinks: 0, dirs: 4,
-                        max_time: "2025-08-13T00:00:00Z".to_string(), num_failed: 0,
+                        size: 2000,
+                        files: 20,
+                        symlinks: 0,
+                        dirs: 4,
+                        max_time: "2025-08-13T00:00:00Z".to_string(),
+                        num_failed: 0,
                     },
                 },
                 retention_reason: vec!["daily-2".to_string()],
             },
         ];
-        
+
         let counts = get_retention_counts(&snapshots);
         assert_eq!(counts.get("latest-1"), Some(&1));
         assert_eq!(counts.get("daily-1"), Some(&1));
         assert_eq!(counts.get("daily-2"), Some(&1));
+    }
+
+    #[test]
+    fn test_parse_sample_data() {
+        let sample_data = include_str!("sample_kopia-snapshot-list.json");
+        let snapshots = parse_snapshots(sample_data).unwrap();
+
+        assert_eq!(snapshots.len(), 17);
+
+        if let Some(latest) = snapshots.last() {
+            assert_eq!(latest.id, "c5be996d125abae92340f3a658443b24");
+            assert_eq!(latest.start_time, "2025-08-14T00:00:04.04475167Z");
+            assert_eq!(latest.stats.total_size, 42154950324);
+            assert_eq!(latest.stats.error_count, 0);
+            assert_eq!(latest.root_entry.summ.num_failed, 0);
+        }
+
+        let retention_counts = get_retention_counts(&snapshots);
+        assert_eq!(retention_counts.get("latest-1"), Some(&1));
+        assert_eq!(retention_counts.get("daily-1"), Some(&1));
+        assert_eq!(retention_counts.get("monthly-1"), Some(&1));
     }
 }
