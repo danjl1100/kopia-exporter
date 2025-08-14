@@ -42,7 +42,7 @@ enum RepositoryAction {
 
 fn main() {
     let cli = Cli::parse();
-    
+
     match cli.command {
         Commands::Snapshot { action } => handle_snapshot_command(action),
         Commands::Repository { action } => handle_repository_command(action),
@@ -74,9 +74,9 @@ fn handle_repository_command(action: RepositoryAction) {
 fn print_sample_snapshots() {
     let sample_path = "src/sample_kopia-snapshot-list.json";
     match fs::read_to_string(sample_path) {
-        Ok(content) => print!("{}", content),
+        Ok(content) => print!("{content}"),
         Err(_) => {
-            eprintln!("Error: Could not read sample data from {}", sample_path);
+            eprintln!("Error: Could not read sample data from {sample_path}");
             process::exit(1);
         }
     }
