@@ -1,3 +1,5 @@
+//! Integration tests for kopia-exporter functionality.
+
 use kopia_exporter::kopia;
 
 #[test]

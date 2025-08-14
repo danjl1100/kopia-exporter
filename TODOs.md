@@ -1,6 +1,6 @@
 ## cleanup
-- [ ] address the couple of `TODO` comments present in the code
-- [ ] fix `cargo clippy` lints, including documenting the pub library functions
+- [x] address the couple of `TODO` comments present in the code
+- [x] fix `cargo clippy` lints, including documenting the pub library functions
 
 ## web server
 - [ ] suggest a few options for a web server crate to use, focus on lightweight (small dependency count) for a tiny server

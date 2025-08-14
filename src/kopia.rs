@@ -67,6 +67,11 @@ pub struct Summary {
     pub num_failed: u32,
 }
 
+/// Parses JSON content into a vector of snapshots.
+///
+/// # Errors
+///
+/// Returns an error if the JSON content cannot be parsed as snapshot data.
 pub fn parse_snapshots(json_content: &str) -> Result<Vec<Snapshot>> {
     Ok(serde_json::from_str(json_content)?)
 }
@@ -84,6 +89,15 @@ pub fn get_retention_counts(snapshots: &[Snapshot]) -> HashMap<String, u32> {
     counts
 }
 
+/// Executes kopia command to retrieve snapshots and parses the output.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The kopia command fails to execute
+/// - The command returns a non-zero exit code
+/// - The output cannot be parsed as UTF-8
+/// - The JSON output cannot be parsed as snapshot data
 pub fn get_snapshots_from_command(kopia_bin: &str) -> Result<Vec<Snapshot>> {
     let output = Command::new(kopia_bin)
         .args(["snapshot", "list", "--json"])
