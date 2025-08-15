@@ -2,7 +2,7 @@
   lib,
   rustPlatform,
 }:
-rustPlatform.buildRustPackage {
+rustPlatform.buildRustPackage rec {
   pname = "kopia-exporter";
   version = "0.1.0";
 
@@ -31,6 +31,9 @@ rustPlatform.buildRustPackage {
   cargoLock = {
     lockFile = ./Cargo.lock;
   };
+
+  # Build both kopia-exporter and fake-kopia binaries
+  cargoBuildFlags = ["--bin" "kopia-exporter" "--bin" "fake-kopia"];
 
   meta = with lib; {
     description = "A lightweight Prometheus metrics exporter for Kopia backup repositories";

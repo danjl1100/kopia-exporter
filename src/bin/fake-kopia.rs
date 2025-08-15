@@ -7,7 +7,6 @@
 
 use clap::{Parser, Subcommand};
 use eyre::Result;
-use std::fs;
 
 #[derive(Parser)]
 #[command(name = "fake-kopia")]
@@ -62,7 +61,8 @@ fn handle_snapshot_command(action: &SnapshotAction) -> Result<()> {
     match action {
         SnapshotAction::List { json } => {
             if *json {
-                print_sample_snapshots()
+                print_sample_snapshots();
+                Ok(())
             } else {
                 eyre::bail!("fake-kopia only supports --json output for snapshot list");
             }
@@ -79,13 +79,7 @@ fn handle_repository_command(action: &RepositoryAction) {
     }
 }
 
-fn print_sample_snapshots() -> Result<()> {
-    let sample_path = "src/sample_kopia-snapshot-list.json";
-    let content = read_sample_data(sample_path)?;
+fn print_sample_snapshots() {
+    let content = include_str!("../sample_kopia-snapshot-list.json");
     print!("{content}");
-    Ok(())
-}
-
-fn read_sample_data(path: &str) -> Result<String> {
-    fs::read_to_string(path).map_err(|e| eyre::eyre!("Could not read sample data from {path}: {e}"))
 }
