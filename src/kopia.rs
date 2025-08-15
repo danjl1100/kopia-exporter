@@ -119,6 +119,48 @@ pub fn get_snapshots_from_command(kopia_bin: &str) -> Result<Vec<Snapshot>> {
 mod tests {
     use super::*;
 
+    fn create_test_snapshot(id: &str, total_size: u64, retention_reasons: Vec<&str>) -> Snapshot {
+        Snapshot {
+            id: id.to_string(),
+            source: Source {
+                host: "test".to_string(),
+                user_name: "user".to_string(),
+                path: "/test".to_string(),
+            },
+            description: "".to_string(),
+            start_time: "2025-08-14T00:00:00Z".to_string(),
+            end_time: "2025-08-14T00:01:00Z".to_string(),
+            stats: Stats {
+                total_size,
+                excluded_total_size: 0,
+                file_count: 10,
+                cached_files: 5,
+                non_cached_files: 5,
+                dir_count: 2,
+                excluded_file_count: 0,
+                excluded_dir_count: 0,
+                ignored_error_count: 0,
+                error_count: 0,
+            },
+            root_entry: RootEntry {
+                name: "test".to_string(),
+                entry_type: "d".to_string(),
+                mode: "0755".to_string(),
+                mtime: "2025-08-14T00:00:00Z".to_string(),
+                obj: format!("obj{id}"),
+                summ: Summary {
+                    size: total_size,
+                    files: 10,
+                    symlinks: 0,
+                    dirs: 2,
+                    max_time: "2025-08-14T00:00:00Z".to_string(),
+                    num_failed: 0,
+                },
+            },
+            retention_reason: retention_reasons.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
     #[test]
     fn test_parse_single_snapshot() {
         let json = r#"[
@@ -167,86 +209,41 @@ mod tests {
     }
 
     #[test]
+    fn test_retention_counts_with_multiple_slots() {
+        // Test case addressing the TODO: verify retention slot counting works correctly
+        // This demonstrates that monthly-1, monthly-2, etc. should be counted separately
+        // because they represent different retention slots, not multiple instances
+        let snapshots = vec![
+            create_test_snapshot("snap1", 1000, vec!["latest-1", "daily-1", "monthly-1"]),
+            create_test_snapshot("snap2", 2000, vec!["latest-2", "daily-2", "monthly-2"]),
+        ];
+
+        let counts = get_retention_counts(&snapshots);
+
+        // Each retention slot should be counted separately because they represent
+        // different positions in the retention timeline, not duplicate instances
+        assert_eq!(counts.get("latest-1"), Some(&1));
+        assert_eq!(counts.get("latest-2"), Some(&1));
+        assert_eq!(counts.get("daily-1"), Some(&1));
+        assert_eq!(counts.get("daily-2"), Some(&1));
+        assert_eq!(counts.get("monthly-1"), Some(&1));
+        assert_eq!(counts.get("monthly-2"), Some(&1));
+
+        // Verify we have the expected total number of distinct retention reasons
+        assert_eq!(counts.len(), 6);
+
+        // Verify no retention slot appears more than once (which would indicate
+        // a problem with Kopia's retention policy or our test data)
+        for count in counts.values() {
+            assert_eq!(*count, 1);
+        }
+    }
+
+    #[test]
     fn test_retention_counts() {
         let snapshots = vec![
-            Snapshot {
-                id: "1".to_string(),
-                source: Source {
-                    host: "test".to_string(),
-                    user_name: "user".to_string(),
-                    path: "/test".to_string(),
-                },
-                description: "".to_string(),
-                start_time: "2025-08-14T00:00:00Z".to_string(),
-                end_time: "2025-08-14T00:01:00Z".to_string(),
-                stats: Stats {
-                    total_size: 1000,
-                    excluded_total_size: 0,
-                    file_count: 10,
-                    cached_files: 5,
-                    non_cached_files: 5,
-                    dir_count: 2,
-                    excluded_file_count: 0,
-                    excluded_dir_count: 0,
-                    ignored_error_count: 0,
-                    error_count: 0,
-                },
-                root_entry: RootEntry {
-                    name: "test".to_string(),
-                    entry_type: "d".to_string(),
-                    mode: "0755".to_string(),
-                    mtime: "2025-08-14T00:00:00Z".to_string(),
-                    obj: "obj1".to_string(),
-                    summ: Summary {
-                        size: 1000,
-                        files: 10,
-                        symlinks: 0,
-                        dirs: 2,
-                        max_time: "2025-08-14T00:00:00Z".to_string(),
-                        num_failed: 0,
-                    },
-                },
-                retention_reason: vec!["latest-1".to_string(), "daily-1".to_string()],
-            },
-            Snapshot {
-                id: "2".to_string(),
-                source: Source {
-                    host: "test".to_string(),
-                    user_name: "user".to_string(),
-                    path: "/test".to_string(),
-                },
-                description: "".to_string(),
-                start_time: "2025-08-13T00:00:00Z".to_string(),
-                end_time: "2025-08-13T00:01:00Z".to_string(),
-                stats: Stats {
-                    total_size: 2000,
-                    excluded_total_size: 0,
-                    file_count: 20,
-                    cached_files: 10,
-                    non_cached_files: 10,
-                    dir_count: 4,
-                    excluded_file_count: 0,
-                    excluded_dir_count: 0,
-                    ignored_error_count: 0,
-                    error_count: 0,
-                },
-                root_entry: RootEntry {
-                    name: "test".to_string(),
-                    entry_type: "d".to_string(),
-                    mode: "0755".to_string(),
-                    mtime: "2025-08-13T00:00:00Z".to_string(),
-                    obj: "obj2".to_string(),
-                    summ: Summary {
-                        size: 2000,
-                        files: 20,
-                        symlinks: 0,
-                        dirs: 4,
-                        max_time: "2025-08-13T00:00:00Z".to_string(),
-                        num_failed: 0,
-                    },
-                },
-                retention_reason: vec!["daily-2".to_string()],
-            },
+            create_test_snapshot("1", 1000, vec!["latest-1", "daily-1"]),
+            create_test_snapshot("2", 2000, vec!["daily-2"]),
         ];
 
         let counts = get_retention_counts(&snapshots);
