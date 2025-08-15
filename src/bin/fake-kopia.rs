@@ -52,7 +52,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Snapshot { action } => handle_snapshot_command(&action)?,
-        Commands::Repository { action } => handle_repository_command(&action)?,
+        Commands::Repository { action } => handle_repository_command(&action),
     }
 
     Ok(())
@@ -70,12 +70,11 @@ fn handle_snapshot_command(action: &SnapshotAction) -> Result<()> {
     }
 }
 
-fn handle_repository_command(action: &RepositoryAction) -> Result<()> {
+fn handle_repository_command(action: &RepositoryAction) {
     match action {
         RepositoryAction::Status => {
             println!("Repository status: OK");
             println!("Connected to: fake-repository");
-            Ok(())
         }
     }
 }
