@@ -25,54 +25,7 @@ pkgs.nixosTest {
     services.kopia-exporter = {
       enable = true;
       bind = "0.0.0.0:9090";
-      kopiaBin = "${pkgs.writeShellScript "fake-kopia" ''
-        #!/bin/sh
-        # Fake kopia binary that returns sample JSON data
-        if [ "$1" = "snapshot" ] && [ "$2" = "list" ] && [ "$3" = "--json" ]; then
-          cat ${pkgs.writeText "sample-kopia-output.json" ''
-          [
-            {
-              "id": "test-snapshot-1",
-              "source": {"host": "test-host", "userName": "test-user", "path": "/test-path"},
-              "description": "",
-              "startTime": "2025-08-15T12:00:00Z",
-              "endTime": "2025-08-15T12:01:00Z",
-              "stats": {
-                "totalSize": 1000000,
-                "excludedTotalSize": 0,
-                "fileCount": 100,
-                "cachedFiles": 50,
-                "nonCachedFiles": 50,
-                "dirCount": 10,
-                "excludedFileCount": 0,
-                "excludedDirCount": 0,
-                "ignoredErrorCount": 0,
-                "errorCount": 0
-              },
-              "rootEntry": {
-                "name": "test-path",
-                "type": "d",
-                "mode": "0755",
-                "mtime": "2025-08-15T12:00:00Z",
-                "obj": "test-obj-id",
-                "summ": {
-                  "size": 1000000,
-                  "files": 100,
-                  "symlinks": 0,
-                  "dirs": 10,
-                  "maxTime": "2025-08-15T12:00:00Z",
-                  "numFailed": 0
-                }
-              },
-              "retentionReason": ["latest-1", "daily-1"]
-            }
-          ]
-        ''}
-        else
-          echo "Unknown kopia command: $*" >&2
-          exit 1
-        fi
-      ''}";
+      kopiaBin = "${kopia-exporter}/bin/fake-kopia";
     };
 
     # Add curl for testing HTTP endpoints
