@@ -22,6 +22,33 @@
           mkdir -p $out/bin
           cp ${kopia-exporter-pkg}/bin/fake-kopia $out/bin/
         '';
+
+        generate-docs = pkgs.writeShellApplication {
+          name = "generate-docs";
+          runtimeInputs = with pkgs; [pandoc nix];
+          text = builtins.readFile ./generate-docs.sh;
+        };
+
+        docs = let
+          markdownContent = import ./extract-options.nix {inherit pkgs;};
+        in
+          pkgs.runCommand "kopia-exporter-docs" {
+            buildInputs = with pkgs; [pandoc];
+          } ''
+            # Write markdown content
+            cat > kopia-exporter-options.md << 'EOF'
+            ${markdownContent}
+            EOF
+
+            # Convert to HTML using pandoc
+            pandoc -s -t html --metadata title="Kopia Exporter NixOS Module Options" \
+              kopia-exporter-options.md -o kopia-exporter-options.html
+
+            # Copy to output
+            mkdir -p $out
+            cp kopia-exporter-options.md $out/
+            cp kopia-exporter-options.html $out/
+          '';
       };
 
       checks = {
