@@ -66,7 +66,6 @@ in {
         NoNewPrivileges = true;
         PrivateTmp = true;
         ProtectSystem = "strict";
-        ProtectHome = true;
         ProtectKernelTunables = true;
         ProtectKernelModules = true;
         ProtectControlGroups = true;
@@ -75,6 +74,8 @@ in {
         RemoveIPC = true;
         PrivateMounts = true;
 
+        # Allow home directory access for child process (kopia cache and credentials)
+        ProtectHome = false;
         # Allow network access for the HTTP server
         PrivateNetwork = false;
 
