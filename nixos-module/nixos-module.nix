@@ -82,7 +82,8 @@ in {
         # Memory and process limits
         MemoryHigh = "128M";
         MemoryMax = "256M";
-        TasksMax = 10;
+        # Allow sufficient tasks for Go runtime (kopia subprocess needs multiple threads)
+        TasksMax = 100;
       };
 
       script = ''
