@@ -23,14 +23,8 @@
           cp ${kopia-exporter-pkg}/bin/fake-kopia $out/bin/
         '';
 
-        generate-docs = pkgs.writeShellApplication {
-          name = "generate-docs";
-          runtimeInputs = with pkgs; [pandoc nix];
-          text = builtins.readFile ./generate-docs.sh;
-        };
-
         docs = let
-          markdownContent = import ./extract-options.nix {inherit pkgs;};
+          markdownContent = import ./nixos-module/extract-options.nix {inherit pkgs;};
         in
           pkgs.runCommand "kopia-exporter-docs" {
             buildInputs = with pkgs; [pandoc];
@@ -52,7 +46,7 @@
       };
 
       checks = {
-        vm-test = pkgs.callPackage ./nixos-vm-test.nix {
+        vm-test = pkgs.callPackage ./nixos-module/nixos-vm-test.nix {
           kopia-exporter = self.packages.${system}.default;
         };
 
@@ -77,6 +71,6 @@
       };
     })
     // {
-      nixosModules.default = import ./nixos-module.nix;
+      nixosModules.default = import ./nixos-module/nixos-module.nix;
     };
 }
