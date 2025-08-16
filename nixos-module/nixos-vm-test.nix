@@ -1,7 +1,7 @@
 {
   pkgs ? import <nixpkgs> {},
   system ? builtins.currentSystem,
-  kopia-exporter ? pkgs.callPackage ./. {},
+  kopia-exporter ? pkgs.callPackage ../. {},
 }:
 pkgs.nixosTest {
   name = "kopia-exporter-service";
@@ -14,8 +14,9 @@ pkgs.nixosTest {
   }: {
     imports = [./nixos-module.nix];
 
-    # Override the package option directly
-    services.kopia-exporter.package = kopia-exporter;
+    # Test the module's default package resolution (this should work with proper ../. references)
+    # Comment out the override to test the module's own package resolution
+    # services.kopia-exporter.package = kopia-exporter;
 
     # Basic system configuration
     boot.loader.grub.enable = false;

@@ -12,8 +12,8 @@ in {
 
     package = mkOption {
       type = types.package;
-      default = pkgs.callPackage ./. {};
-      defaultText = literalExpression "pkgs.callPackage ./. { }";
+      default = pkgs.callPackage ../. {};
+      defaultText = literalExpression "pkgs.callPackage ../. { }";
       description = "The kopia-exporter package to use.";
     };
 
