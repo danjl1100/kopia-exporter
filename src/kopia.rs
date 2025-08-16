@@ -104,9 +104,13 @@ pub fn get_snapshots_from_command(kopia_bin: &str) -> Result<Vec<Snapshot>> {
         .output()?;
 
     if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(eyre!(
-            "kopia command failed with exit code: {}",
-            output.status.code().unwrap_or(-1)
+            "kopia command failed with exit code: {}\nstdout: {}\nstderr: {}",
+            output.status.code().unwrap_or(-1),
+            stdout,
+            stderr
         ));
     }
 
