@@ -76,6 +76,8 @@ in {
 
         # Allow home directory access for child process (kopia cache and credentials)
         ProtectHome = false;
+        # Allow write access to user home directory for kopia cache and logs
+        ReadWritePaths = ["/var/lib/${cfg.user}"];
         # Allow network access for the HTTP server
         PrivateNetwork = false;
 
