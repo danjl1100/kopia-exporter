@@ -80,9 +80,16 @@ fn test_caching_reduces_subprocess_calls() -> Result<()> {
 
     // Test with caching enabled (1 second cache for quick testing)
     let log_file_cached = format!("/tmp/fake-kopia-cache-test-{}.log", std::process::id());
-    
+
     let mut server_process_cached = Command::new(kopia_exporter_bin)
-        .args(["--kopia-bin", fake_kopia_bin, "--bind", "127.0.0.1:9093", "--cache-seconds", "1"])
+        .args([
+            "--kopia-bin",
+            fake_kopia_bin,
+            "--bind",
+            "127.0.0.1:9093",
+            "--cache-seconds",
+            "1",
+        ])
         .env("FAKE_KOPIA_LOG", &log_file_cached)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -105,9 +112,16 @@ fn test_caching_reduces_subprocess_calls() -> Result<()> {
 
     // Test with caching disabled
     let log_file_no_cache = format!("/tmp/fake-kopia-no-cache-test-{}.log", std::process::id());
-    
+
     let mut server_process_no_cache = Command::new(kopia_exporter_bin)
-        .args(["--kopia-bin", fake_kopia_bin, "--bind", "127.0.0.1:9094", "--cache-seconds", "0"])
+        .args([
+            "--kopia-bin",
+            fake_kopia_bin,
+            "--bind",
+            "127.0.0.1:9094",
+            "--cache-seconds",
+            "0",
+        ])
         .env("FAKE_KOPIA_LOG", &log_file_no_cache)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -134,8 +148,14 @@ fn test_caching_reduces_subprocess_calls() -> Result<()> {
 
     // With caching, we should see only 1 call to fake-kopia
     // Without caching, we should see 3 calls
-    assert_eq!(cached_calls, 1, "Expected 1 kopia call with caching enabled");
-    assert_eq!(no_cache_calls, 3, "Expected 3 kopia calls with caching disabled");
+    assert_eq!(
+        cached_calls, 1,
+        "Expected 1 kopia call with caching enabled"
+    );
+    assert_eq!(
+        no_cache_calls, 3,
+        "Expected 3 kopia calls with caching disabled"
+    );
 
     Ok(())
 }

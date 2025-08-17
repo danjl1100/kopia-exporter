@@ -39,6 +39,6 @@ A lightweight Prometheus metrics exporter for Kopia backup repositories. Built w
 # Rust unit and integration tests
 cargo test
 
-# All checks including NixOS VM test
+# All checks including NixOS VM tests and formatting
 nix flake check
 ```

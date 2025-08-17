@@ -4,7 +4,7 @@
 //! suitable for Prometheus monitoring.
 
 use clap::Parser;
-use kopia_exporter::{get_snapshots_from_command, metrics, Snapshot};
+use kopia_exporter::{Snapshot, get_snapshots_from_command, metrics};
 use std::time::{Duration, Instant};
 use tiny_http::{Header, Method, Response, Server};
 
@@ -67,9 +67,11 @@ fn serve_requests(server: Server, kopia_bin: &str, cache_duration: Duration) {
                 match snapshots {
                     Ok(snapshots) => {
                         let metrics_output = metrics::generate_all_metrics(&snapshots);
-                        let header =
-                            Header::from_bytes(&b"Content-Type"[..], &b"text/plain; charset=utf-8"[..])
-                                .expect("Invalid header");
+                        let header = Header::from_bytes(
+                            &b"Content-Type"[..],
+                            &b"text/plain; charset=utf-8"[..],
+                        )
+                        .expect("Invalid header");
                         let response = Response::from_string(metrics_output).with_header(header);
                         let _ = request.respond(response);
                     }

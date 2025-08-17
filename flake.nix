@@ -62,6 +62,15 @@
             alejandra --check .
             touch $out
           '';
+
+        cargo-fmt =
+          pkgs.runCommand "cargo-fmt-check" {
+            buildInputs = [pkgs.cargo pkgs.rustfmt];
+          } ''
+            cd ${./.}
+            cargo fmt --check
+            touch $out
+          '';
       };
 
       devShells.default = pkgs.mkShell {
