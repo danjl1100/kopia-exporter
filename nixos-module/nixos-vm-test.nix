@@ -22,7 +22,7 @@ pkgs.nixosTest {
     boot.loader.grub.enable = false;
     networking.hostName = "kopia-exporter-test";
 
-    # Enable the kopia-exporter service
+    # Enable the kopia-exporter service with defaults
     services.kopia-exporter = {
       enable = true;
       bind = "0.0.0.0:9090";
@@ -64,6 +64,6 @@ pkgs.nixosTest {
     # Test that invalid endpoints return 404
     machine.fail("curl -f http://localhost:9090/invalid")
 
-    print("All tests passed!")
+    print("Basic service test passed!")
   '';
 }

@@ -1,4 +1,2 @@
-- [x] add the fake-kopia binary to default.nix for use in tests
-- [x] in the nixos-vm-test update the kopia-bin argument to use fake-kopia
-- [x] think about what improvements are possible to simplify the nix file setup
-
+- [x] It's unclear whether it'd be beneficial to rate-limit calls to kopia.  On the one hand, calling kopia on an interval to prepare for prometheus scrapes seems excessive, but caching the result (for a few seconds) when prometheus does ping may not bring much benefit.  Ideally the service is protected by firewalls anyway, so DDoS is not a real concern.  What do you recommend here?
+  - RESOLVED: Added 30-second configurable cache (--cache-seconds flag, default 30, set to 0 to disable)

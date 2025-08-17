@@ -7,6 +7,8 @@
 
 use clap::{Parser, Subcommand};
 use eyre::Result;
+use std::fs::OpenOptions;
+use std::io::Write;
 
 #[derive(Parser)]
 #[command(name = "fake-kopia")]
@@ -49,11 +51,26 @@ enum RepositoryAction {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Log each invocation to a file for testing purposes
+    log_invocation()?;
+
     match cli.command {
         Commands::Snapshot { action } => handle_snapshot_command(&action)?,
         Commands::Repository { action } => handle_repository_command(&action),
     }
 
+    Ok(())
+}
+
+fn log_invocation() -> Result<()> {
+    if let Ok(log_path) = std::env::var("FAKE_KOPIA_LOG") {
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path)?;
+        // Log with both PID and parent PID to help distinguish test runs
+        writeln!(file, "invocation")?;
+    }
     Ok(())
 }
 

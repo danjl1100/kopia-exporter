@@ -30,3 +30,15 @@ A lightweight Prometheus metrics exporter for Kopia backup repositories. Built w
 - `src/main.rs`: Web server and CLI interface
 - `src/bin/fake-kopia.rs`: Test fixture for realistic testing
 - `tests/`: Integration tests using real binaries
+- `nixos-module/`: NixOS module and VM integration tests
+
+## Testing
+
+### Run All Tests
+```bash
+# Rust unit and integration tests
+cargo test
+
+# All checks including NixOS VM test
+nix flake check
+```

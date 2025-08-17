@@ -50,6 +50,10 @@
           kopia-exporter = self.packages.${system}.default;
         };
 
+        vm-caching-test = pkgs.callPackage ./nixos-module/nixos-vm-caching-test.nix {
+          kopia-exporter = self.packages.${system}.default;
+        };
+
         alejandra-format =
           pkgs.runCommand "alejandra-format-check" {
             buildInputs = [pkgs.alejandra];

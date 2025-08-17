@@ -2,6 +2,7 @@
 
 use eyre::Result;
 use kopia_exporter::kopia;
+use std::fs;
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
@@ -68,6 +69,73 @@ fn test_web_server_integration() -> Result<()> {
     // Clean up: terminate the server process
     server_process.kill()?;
     server_process.wait()?;
+
+    Ok(())
+}
+
+#[test]
+fn test_caching_reduces_subprocess_calls() -> Result<()> {
+    let fake_kopia_bin = env!("CARGO_BIN_EXE_fake-kopia");
+    let kopia_exporter_bin = env!("CARGO_BIN_EXE_kopia-exporter");
+
+    // Test with caching enabled (1 second cache for quick testing)
+    let log_file_cached = format!("/tmp/fake-kopia-cache-test-{}.log", std::process::id());
+    
+    let mut server_process_cached = Command::new(kopia_exporter_bin)
+        .args(["--kopia-bin", fake_kopia_bin, "--bind", "127.0.0.1:9093", "--cache-seconds", "1"])
+        .env("FAKE_KOPIA_LOG", &log_file_cached)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+
+    thread::sleep(Duration::from_millis(500));
+
+    // Make 3 rapid requests
+    for _ in 0..3 {
+        let _ = minreq::get("http://127.0.0.1:9093/metrics").send()?;
+        thread::sleep(Duration::from_millis(50)); // Small delay between requests
+    }
+
+    server_process_cached.kill()?;
+    server_process_cached.wait()?;
+
+    // Count invocations with caching
+    let cached_log = fs::read_to_string(&log_file_cached).unwrap_or_default();
+    let cached_calls = cached_log.lines().count();
+
+    // Test with caching disabled
+    let log_file_no_cache = format!("/tmp/fake-kopia-no-cache-test-{}.log", std::process::id());
+    
+    let mut server_process_no_cache = Command::new(kopia_exporter_bin)
+        .args(["--kopia-bin", fake_kopia_bin, "--bind", "127.0.0.1:9094", "--cache-seconds", "0"])
+        .env("FAKE_KOPIA_LOG", &log_file_no_cache)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+
+    thread::sleep(Duration::from_millis(500));
+
+    // Make 3 rapid requests
+    for _ in 0..3 {
+        let _ = minreq::get("http://127.0.0.1:9094/metrics").send()?;
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    server_process_no_cache.kill()?;
+    server_process_no_cache.wait()?;
+
+    // Count invocations without caching
+    let no_cache_log = fs::read_to_string(&log_file_no_cache).unwrap_or_default();
+    let no_cache_calls = no_cache_log.lines().count();
+
+    // Clean up log files
+    let _ = fs::remove_file(&log_file_cached);
+    let _ = fs::remove_file(&log_file_no_cache);
+
+    // With caching, we should see only 1 call to fake-kopia
+    // Without caching, we should see 3 calls
+    assert_eq!(cached_calls, 1, "Expected 1 kopia call with caching enabled");
+    assert_eq!(no_cache_calls, 3, "Expected 3 kopia calls with caching disabled");
 
     Ok(())
 }
