@@ -25,48 +25,42 @@ struct Args {
 }
 
 #[derive(Debug, Clone)]
-struct CachedSnapshots {
+struct TimedSnapshots {
     snapshots: Vec<Snapshot>,
-    cached_at: Instant,
+    created_at: Instant,
+}
+impl TimedSnapshots {
+    fn now(snapshots: Vec<Snapshot>) -> Self {
+        Self {
+            snapshots,
+            created_at: Instant::now(),
+        }
+    }
 }
 
 #[allow(clippy::needless_pass_by_value)] // Server is consumed by incoming_requests()
 fn serve_requests(server: Server, kopia_bin: &str, cache_duration: Duration) {
-    let mut cache: Option<CachedSnapshots> = None;
+    let mut cache: Option<TimedSnapshots> = None;
     for request in server.incoming_requests() {
         match (request.method(), request.url()) {
             (&Method::Get, "/metrics") => {
                 // 1. Check if cached value is available (clear if expired)
-                if !cache_duration.is_zero()
-                    && let Some(ref cached) = cache
-                    && cached.cached_at.elapsed() >= cache_duration
+                if let Some(cached) = &cache
+                    && cached.created_at.elapsed() >= cache_duration
                 {
                     cache = None; // Clear expired cache
                 }
 
                 // 2. Get snapshots (from cache or fresh fetch)
-                let snapshots = if let Some(ref cached) = cache {
-                    Ok(cached.snapshots.clone())
-                } else {
-                    match get_snapshots_from_command(kopia_bin) {
-                        Ok(fresh_snapshots) => {
-                            // Update cache if caching is enabled
-                            if !cache_duration.is_zero() {
-                                cache = Some(CachedSnapshots {
-                                    snapshots: fresh_snapshots.clone(),
-                                    cached_at: Instant::now(),
-                                });
-                            }
-                            Ok(fresh_snapshots)
-                        }
-                        Err(e) => Err(e),
-                    }
-                };
+                let current = cache.take().map_or_else(
+                    || get_snapshots_from_command(kopia_bin).map(TimedSnapshots::now),
+                    Ok,
+                );
 
                 // 3. Serve the result
-                match snapshots {
-                    Ok(snapshots) => {
-                        let metrics_output = metrics::generate_all_metrics(&snapshots);
+                match &current {
+                    Ok(TimedSnapshots { snapshots, .. }) => {
+                        let metrics_output = metrics::generate_all_metrics(snapshots);
                         let header = Header::from_bytes(
                             &b"Content-Type"[..],
                             &b"text/plain; charset=utf-8"[..],
@@ -81,6 +75,13 @@ fn serve_requests(server: Server, kopia_bin: &str, cache_duration: Duration) {
                             Response::from_string("Error fetching metrics").with_status_code(500);
                         let _ = request.respond(error_response);
                     }
+                }
+
+                // 4. Store result in cache (if successful and cache enabled)
+                if let Ok(current) = current
+                    && !cache_duration.is_zero()
+                {
+                    cache = Some(current);
                 }
             }
             (&Method::Get, "/") => {
