@@ -1,6 +1,6 @@
 use eyre::{Result, eyre};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,8 +77,8 @@ pub fn parse_snapshots(json_content: &str) -> Result<Vec<Snapshot>> {
 }
 
 #[must_use]
-pub fn get_retention_counts(snapshots: &[Snapshot]) -> HashMap<String, u32> {
-    let mut counts = HashMap::new();
+pub fn get_retention_counts(snapshots: &[Snapshot]) -> BTreeMap<String, u32> {
+    let mut counts = BTreeMap::new();
 
     for snapshot in snapshots {
         for reason in &snapshot.retention_reason {
