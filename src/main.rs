@@ -60,7 +60,8 @@ fn serve_requests(server: Server, kopia_bin: &str, cache_duration: Duration) {
                 // 3. Serve the result
                 match &current {
                     Ok(TimedSnapshots { snapshots, .. }) => {
-                        let metrics_output = metrics::generate_all_metrics(snapshots);
+                        let now = jiff::Timestamp::now();
+                        let metrics_output = metrics::generate_all_metrics(snapshots, now);
                         let header = Header::from_bytes(
                             &b"Content-Type"[..],
                             &b"text/plain; charset=utf-8"[..],

@@ -72,7 +72,7 @@ pub struct Summary {
 /// # Errors
 ///
 /// Returns an error if the JSON content cannot be parsed as snapshot data.
-pub fn parse_snapshots(json_content: &str) -> Result<Vec<Snapshot>> {
+pub(crate) fn parse_snapshots(json_content: &str) -> Result<Vec<Snapshot>> {
     Ok(serde_json::from_str(json_content)?)
 }
 
@@ -123,7 +123,7 @@ pub fn get_snapshots_from_command(kopia_bin: &str) -> Result<Vec<Snapshot>> {
 mod tests {
     use super::*;
 
-    fn create_test_snapshot(id: &str, total_size: u64, retention_reasons: Vec<&str>) -> Snapshot {
+    fn create_test_snapshot(id: &str, total_size: u64, retention_reasons: &[&str]) -> Snapshot {
         Snapshot {
             id: id.to_string(),
             source: Source {
@@ -161,7 +161,7 @@ mod tests {
                     num_failed: 0,
                 },
             },
-            retention_reason: retention_reasons.iter().map(|s| s.to_string()).collect(),
+            retention_reason: retention_reasons.iter().map(ToString::to_string).collect(),
         }
     }
 
@@ -205,7 +205,7 @@ mod tests {
             }
         ]"#;
 
-        let snapshots = parse_snapshots(json).unwrap();
+        let snapshots = parse_snapshots(json).expect("valid JSON");
         assert_eq!(snapshots.len(), 1);
         assert_eq!(snapshots[0].id, "test123");
         assert_eq!(snapshots[0].stats.total_size, 1000);
@@ -218,8 +218,8 @@ mod tests {
         // This demonstrates that monthly-1, monthly-2, etc. should be counted separately
         // because they represent different retention slots, not multiple instances
         let snapshots = vec![
-            create_test_snapshot("snap1", 1000, vec!["latest-1", "daily-1", "monthly-1"]),
-            create_test_snapshot("snap2", 2000, vec!["latest-2", "daily-2", "monthly-2"]),
+            create_test_snapshot("snap1", 1000, &["latest-1", "daily-1", "monthly-1"]),
+            create_test_snapshot("snap2", 2000, &["latest-2", "daily-2", "monthly-2"]),
         ];
 
         let counts = get_retention_counts(&snapshots);
@@ -246,8 +246,8 @@ mod tests {
     #[test]
     fn test_retention_counts() {
         let snapshots = vec![
-            create_test_snapshot("1", 1000, vec!["latest-1", "daily-1"]),
-            create_test_snapshot("2", 2000, vec!["daily-2"]),
+            create_test_snapshot("1", 1000, &["latest-1", "daily-1"]),
+            create_test_snapshot("2", 2000, &["daily-2"]),
         ];
 
         let counts = get_retention_counts(&snapshots);
@@ -260,7 +260,7 @@ mod tests {
     #[expect(clippy::unreadable_literal)]
     fn test_parse_sample_data() {
         let sample_data = include_str!("sample_kopia-snapshot-list.json");
-        let snapshots = parse_snapshots(sample_data).unwrap();
+        let snapshots = parse_snapshots(sample_data).expect("valid snapshot JSON");
 
         assert_eq!(snapshots.len(), 17);
 

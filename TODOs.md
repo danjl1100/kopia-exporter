@@ -1,0 +1,1 @@
+- [ ] look over the unstaged changes listed in the README.md, and determine whether this is the right solution for the empty snapshots case (thinking about whether this will help for prometheus alertmanager rules)
