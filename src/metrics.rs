@@ -2,15 +2,15 @@ use crate::kopia::{Snapshot, get_retention_counts};
 use std::fmt::{self, Display};
 
 struct MetricLabel {
-    pub name: &'static str,
-    pub help_text: &'static str,
-    pub ty: MetricType,
+    name: &'static str,
+    help_text: &'static str,
+    ty: MetricType,
 }
 enum MetricType {
     Gauge,
 }
 impl MetricLabel {
-    pub const fn gauge(name: &'static str, help_text: &'static str) -> Self {
+    const fn gauge(name: &'static str, help_text: &'static str) -> Self {
         Self {
             name,
             help_text,
@@ -42,7 +42,7 @@ impl Display for MetricLabel {
 /// Returns a string containing Prometheus-formatted metrics showing the count
 /// of snapshots for each retention reason (e.g., "latest-1", "daily-7", etc.).
 #[must_use]
-pub fn snapshots_by_retention_metrics(snapshots: &[Snapshot]) -> impl Display {
+fn snapshots_by_retention(snapshots: &[Snapshot]) -> impl Display {
     const NAME: &str = "kopia_snapshots_by_retention";
     const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Number of snapshots by retention reason");
 
@@ -67,9 +67,9 @@ pub fn snapshots_by_retention_metrics(snapshots: &[Snapshot]) -> impl Display {
 /// Generates Prometheus metrics for the latest snapshot size.
 ///
 /// Returns a string containing Prometheus-formatted metrics showing the total
-/// size in bytes of the most recent snapshot.
+/// size in bytes of the most recent snapshot. Only present if snapshots list is not empty.
 #[must_use]
-pub fn latest_snapshot_size_metrics(snapshots: &[Snapshot]) -> impl Display {
+fn snapshot_total_size_bytes(snapshots: &[Snapshot]) -> Option<impl Display> {
     const NAME: &str = "kopia_snapshot_total_size_bytes";
     const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Total size of latest snapshot in bytes");
 
@@ -79,22 +79,22 @@ pub fn latest_snapshot_size_metrics(snapshots: &[Snapshot]) -> impl Display {
     impl Display for Output {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             let Self { total_size } = self;
-
             writeln!(f, "{LABEL}")?;
             writeln!(f, "{NAME} {total_size}")
         }
     }
 
-    let total_size = snapshots.last().map_or(0, |v| v.stats.total_size);
-    Output { total_size }
+    snapshots.last().map(|v| Output {
+        total_size: v.stats.total_size,
+    })
 }
 
 /// Generates Prometheus metrics for the age of the latest snapshot.
 ///
 /// Returns a string containing Prometheus-formatted metrics showing the age
-/// in seconds of the most recent snapshot from its end time.
+/// in seconds of the most recent snapshot from its end time. Only present if snapshots list is not empty.
 #[must_use]
-fn snapshot_age_metrics(snapshots: &[Snapshot], now: jiff::Timestamp) -> impl Display {
+fn snapshot_age_seconds(snapshots: &[Snapshot], now: jiff::Timestamp) -> Option<impl Display> {
     const NAME: &str = "kopia_snapshot_age_seconds";
     const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Age of newest snapshot in seconds");
 
@@ -109,27 +109,93 @@ fn snapshot_age_metrics(snapshots: &[Snapshot], now: jiff::Timestamp) -> impl Di
         }
     }
 
-    let age_seconds = snapshots
-        .last()
-        .and_then(|latest| {
-            let end_time: jiff::Timestamp = latest.end_time.parse().ok()?;
-            let age = now - end_time;
-            let age_seconds = age
-                .total(jiff::Unit::Second)
-                .expect("relative reference time given");
-            #[allow(clippy::cast_possible_truncation)]
-            Some(age_seconds.round() as i64)
+    snapshots.last().and_then(|latest| {
+        let end_time: jiff::Timestamp = latest.end_time.parse().ok()?;
+        let age = now - end_time;
+        let age_seconds = age
+            .total(jiff::Unit::Second)
+            .expect("relative reference time given");
+        #[allow(clippy::cast_possible_truncation)]
+        Some(Output {
+            age_seconds: age_seconds.round() as i64,
         })
-        .unwrap_or(0);
-    Output { age_seconds }
+    })
+}
+
+/// Generates Prometheus metrics for timestamp parsing errors.
+///
+/// Returns a string containing Prometheus-formatted metrics showing the count
+/// of snapshots with unparseable timestamps. Only present if there are parsing errors.
+#[must_use]
+fn snapshot_timestamp_parse_errors_total(snapshots: &[Snapshot]) -> Option<impl Display> {
+    const NAME: &str = "kopia_snapshot_timestamp_parse_errors_total";
+    const LABEL: MetricLabel =
+        MetricLabel::gauge(NAME, "Number of snapshots with unparseable timestamps");
+
+    struct Output {
+        error_count: u32,
+    }
+    impl Display for Output {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            let Self { error_count } = self;
+            writeln!(f, "{LABEL}")?;
+            writeln!(f, "{NAME} {error_count}")
+        }
+    }
+
+    let error_count = snapshots
+        .iter()
+        .map(|snapshot| {
+            if snapshot.end_time.parse::<jiff::Timestamp>().is_err() {
+                1
+            } else {
+                0
+            }
+        })
+        .sum::<u32>();
+
+    if error_count > 0 {
+        Some(Output { error_count })
+    } else {
+        None
+    }
+}
+
+/// Generates Prometheus metrics for the last successful snapshot timestamp.
+///
+/// Returns a string containing Prometheus-formatted metrics showing the Unix timestamp
+/// of the most recent snapshot. Only present if snapshots list is not empty.
+#[must_use]
+fn snapshot_last_success_timestamp(snapshots: &[Snapshot]) -> Option<impl Display> {
+    const NAME: &str = "kopia_snapshot_last_success_timestamp";
+    const LABEL: MetricLabel =
+        MetricLabel::gauge(NAME, "Unix timestamp of last successful snapshot");
+
+    struct Output {
+        timestamp: i64,
+    }
+    impl Display for Output {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            let Self { timestamp } = self;
+            writeln!(f, "{LABEL}")?;
+            writeln!(f, "{NAME} {timestamp}")
+        }
+    }
+
+    snapshots.last().and_then(|latest| {
+        let end_time: jiff::Timestamp = latest.end_time.parse().ok()?;
+        Some(Output {
+            timestamp: end_time.as_second(),
+        })
+    })
 }
 
 /// Generates Prometheus metrics for errors in the latest snapshot.
 ///
 /// Returns a string containing Prometheus-formatted metrics showing the total
-/// number of errors in the most recent snapshot.
+/// number of errors in the most recent snapshot. Only present if snapshots list is not empty.
 #[must_use]
-pub fn snapshot_errors_metrics(snapshots: &[Snapshot]) -> impl Display {
+fn snapshot_errors_total(snapshots: &[Snapshot]) -> Option<impl Display> {
     const NAME: &str = "kopia_snapshot_errors_total";
     const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Total errors in latest snapshot");
 
@@ -144,16 +210,44 @@ pub fn snapshot_errors_metrics(snapshots: &[Snapshot]) -> impl Display {
         }
     }
 
-    let error_count = snapshots.last().map_or(0, |v| v.stats.error_count);
-    Output { error_count }
+    snapshots.last().map(|v| Output {
+        error_count: v.stats.error_count,
+    })
+}
+
+/// Generates Prometheus metrics for ignored errors in the latest snapshot.
+///
+/// Returns a string containing Prometheus-formatted metrics showing the total
+/// number of ignored errors in the most recent snapshot. Only present if snapshots list is not empty.
+#[must_use]
+fn snapshot_ignored_errors_total(snapshots: &[Snapshot]) -> Option<impl Display> {
+    const NAME: &str = "kopia_snapshot_ignored_errors_total";
+    const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Ignored errors in latest snapshot");
+
+    struct Output {
+        ignored_error_count: u32,
+    }
+    impl Display for Output {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            let Self {
+                ignored_error_count,
+            } = self;
+            writeln!(f, "{LABEL}")?;
+            writeln!(f, "{NAME} {ignored_error_count}")
+        }
+    }
+
+    snapshots.last().map(|v| Output {
+        ignored_error_count: v.stats.ignored_error_count,
+    })
 }
 
 /// Generates Prometheus metrics for failed files in the latest snapshot.
 ///
 /// Returns a string containing Prometheus-formatted metrics showing the number
-/// of failed files in the most recent snapshot.
+/// of failed files in the most recent snapshot. Only present if snapshots list is not empty.
 #[must_use]
-pub fn snapshot_failed_files_metrics(snapshots: &[Snapshot]) -> impl Display {
+fn snapshot_failed_files_total(snapshots: &[Snapshot]) -> Option<impl Display> {
     const NAME: &str = "kopia_snapshot_failed_files_total";
     const LABEL: MetricLabel =
         MetricLabel::gauge(NAME, "Number of failed files in latest snapshot");
@@ -169,8 +263,42 @@ pub fn snapshot_failed_files_metrics(snapshots: &[Snapshot]) -> impl Display {
         }
     }
 
-    let num_failed = snapshots.last().map_or(0, |v| v.root_entry.summ.num_failed);
-    Output { num_failed }
+    snapshots.last().map(|v| Output {
+        num_failed: v.root_entry.summ.num_failed,
+    })
+}
+
+/// Generates Prometheus metrics for the size change from the previous snapshot.
+///
+/// Returns a string containing Prometheus-formatted metrics showing the change
+/// in bytes from the previous snapshot. Only present if snapshots list has more than one snapshot.
+#[must_use]
+fn snapshot_size_change_bytes(snapshots: &[Snapshot]) -> Option<impl Display> {
+    const NAME: &str = "kopia_snapshot_size_change_bytes";
+    const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Change in size from previous snapshot");
+
+    struct Output {
+        size_change: i64,
+    }
+    impl Display for Output {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            let Self { size_change } = self;
+            writeln!(f, "{LABEL}")?;
+            writeln!(f, "{NAME} {size_change}")
+        }
+    }
+
+    let mut iter = snapshots.iter().rev();
+    if let (Some(latest), Some(previous)) = (iter.next(), iter.next()) {
+        let latest_size = i64::try_from(latest.stats.total_size).ok()?;
+        let previous_size = i64::try_from(previous.stats.total_size).ok()?;
+
+        Some(Output {
+            size_change: latest_size - previous_size,
+        })
+    } else {
+        None
+    }
 }
 
 /// Generates Prometheus metrics for the total number of snapshots.
@@ -178,7 +306,7 @@ pub fn snapshot_failed_files_metrics(snapshots: &[Snapshot]) -> impl Display {
 /// Returns a string containing Prometheus-formatted metrics showing the total
 /// count of all snapshots in the repository.
 #[must_use]
-pub fn snapshots_total_metrics(snapshots: &[Snapshot]) -> impl Display {
+fn snapshots_total(snapshots: &[Snapshot]) -> impl Display {
     const NAME: &str = "kopia_snapshots_total";
     const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Total number of snapshots");
 
@@ -203,13 +331,28 @@ pub fn snapshots_total_metrics(snapshots: &[Snapshot]) -> impl Display {
 /// Prometheus scraping.
 #[must_use]
 pub fn generate_all_metrics(snapshots: &[Snapshot], now: jiff::Timestamp) -> String {
-    let metrics: &[&dyn Display] = &[
-        &snapshots_by_retention_metrics(snapshots),
-        &latest_snapshot_size_metrics(snapshots),
-        &snapshot_age_metrics(snapshots, now),
-        &snapshot_errors_metrics(snapshots),
-        &snapshot_failed_files_metrics(snapshots),
-        &snapshots_total_metrics(snapshots),
+    let retention_metrics = snapshots_by_retention(snapshots);
+    let size_metrics = snapshot_total_size_bytes(snapshots);
+    let age_metrics = snapshot_age_seconds(snapshots, now);
+    let parse_error_metrics = snapshot_timestamp_parse_errors_total(snapshots);
+    let timestamp_metrics = snapshot_last_success_timestamp(snapshots);
+    let errors_metrics = snapshot_errors_total(snapshots);
+    let ignored_errors_metrics = snapshot_ignored_errors_total(snapshots);
+    let failed_files_metrics = snapshot_failed_files_total(snapshots);
+    let size_change_metrics = snapshot_size_change_bytes(snapshots);
+    let total_metrics = snapshots_total(snapshots);
+
+    let metrics: &[Option<&dyn Display>] = &[
+        Some(&retention_metrics),
+        size_metrics.as_ref().map(|m| m as &dyn Display),
+        age_metrics.as_ref().map(|m| m as &dyn Display),
+        parse_error_metrics.as_ref().map(|m| m as &dyn Display),
+        timestamp_metrics.as_ref().map(|m| m as &dyn Display),
+        errors_metrics.as_ref().map(|m| m as &dyn Display),
+        ignored_errors_metrics.as_ref().map(|m| m as &dyn Display),
+        failed_files_metrics.as_ref().map(|m| m as &dyn Display),
+        size_change_metrics.as_ref().map(|m| m as &dyn Display),
+        Some(&total_metrics),
     ];
 
     let mut output = String::new();
@@ -218,10 +361,12 @@ pub fn generate_all_metrics(snapshots: &[Snapshot], now: jiff::Timestamp) -> Str
     for metric in metrics {
         use std::fmt::Write as _;
 
-        if first.take().is_none() {
-            output.push('\n');
+        if let Some(m) = metric {
+            if first.take().is_none() {
+                output.push('\n');
+            }
+            write!(&mut output, "{m}").expect("infallible");
         }
-        write!(&mut output, "{metric}").expect("infallible");
     }
     output
 }
@@ -280,7 +425,7 @@ mod tests {
             create_test_snapshot("2", 2000, &["daily-2"]),
         ];
 
-        let metrics = snapshots_by_retention_metrics(snapshots).to_string();
+        let metrics = snapshots_by_retention(snapshots).to_string();
 
         assert!(metrics.contains("# HELP kopia_snapshots_by_retention"));
         assert!(metrics.contains("# TYPE kopia_snapshots_by_retention gauge"));
@@ -296,7 +441,9 @@ mod tests {
             create_test_snapshot("2", 2000, &["latest-1"]),
         ];
 
-        let metrics = latest_snapshot_size_metrics(&snapshots).to_string();
+        let metrics = snapshot_total_size_bytes(&snapshots)
+            .expect("nonempty")
+            .to_string();
 
         assert!(metrics.contains("# HELP kopia_snapshot_total_size_bytes"));
         assert!(metrics.contains("# TYPE kopia_snapshot_total_size_bytes gauge"));
@@ -306,9 +453,9 @@ mod tests {
     #[test]
     fn test_latest_snapshot_size_metrics_empty() {
         let snapshots = vec![];
-        let metrics = latest_snapshot_size_metrics(&snapshots).to_string();
+        let metrics = snapshot_total_size_bytes(&snapshots);
 
-        assert!(metrics.contains("kopia_snapshot_total_size_bytes 0"));
+        assert!(metrics.is_none());
     }
 
     #[test]
@@ -319,7 +466,9 @@ mod tests {
         let mut snapshot = create_test_snapshot("1", 1000, &["latest-1"]);
         snapshot.end_time = recent_time.to_string();
 
-        let metrics = snapshot_age_metrics(&[snapshot], now).to_string();
+        let metrics = snapshot_age_seconds(&[snapshot], now)
+            .expect("nonempty")
+            .to_string();
 
         assert!(metrics.contains("# HELP kopia_snapshot_age_seconds"));
         assert!(metrics.contains("# TYPE kopia_snapshot_age_seconds gauge"));
@@ -344,9 +493,9 @@ mod tests {
     fn test_snapshot_age_metrics_empty() {
         let snapshots = vec![];
         let now = jiff::Timestamp::now();
-        let metrics = snapshot_age_metrics(&snapshots, now).to_string();
+        let metrics = snapshot_age_seconds(&snapshots, now);
 
-        assert!(metrics.contains("kopia_snapshot_age_seconds 0"));
+        assert!(metrics.is_none());
     }
 
     #[test]
@@ -356,9 +505,14 @@ mod tests {
 
         let now = jiff::Timestamp::now();
 
-        let metrics = snapshot_age_metrics(&[snapshot], now).to_string();
+        let snapshot_array = [snapshot.clone()];
+        let age_metrics = snapshot_age_seconds(&snapshot_array, now);
+        let error_metrics = snapshot_timestamp_parse_errors_total(&[snapshot])
+            .expect("nonempty")
+            .to_string();
 
-        assert!(metrics.contains("kopia_snapshot_age_seconds 0"));
+        assert!(age_metrics.is_none());
+        assert!(error_metrics.contains("kopia_snapshot_timestamp_parse_errors_total 1"));
     }
 
     #[test]
@@ -366,7 +520,9 @@ mod tests {
         let mut snapshot = create_test_snapshot("1", 1000, &["latest-1"]);
         snapshot.stats.error_count = 5;
 
-        let metrics = snapshot_errors_metrics(&[snapshot]).to_string();
+        let metrics = snapshot_errors_total(&[snapshot])
+            .expect("nonempty")
+            .to_string();
 
         assert!(metrics.contains("# HELP kopia_snapshot_errors_total"));
         assert!(metrics.contains("# TYPE kopia_snapshot_errors_total gauge"));
@@ -377,7 +533,9 @@ mod tests {
     fn test_snapshot_errors_metrics_no_errors() {
         let snapshot = create_test_snapshot("1", 1000, &["latest-1"]);
 
-        let metrics = snapshot_errors_metrics(&[snapshot]).to_string();
+        let metrics = snapshot_errors_total(&[snapshot])
+            .expect("nonempty")
+            .to_string();
 
         assert!(metrics.contains("kopia_snapshot_errors_total 0"));
     }
@@ -385,9 +543,9 @@ mod tests {
     #[test]
     fn test_snapshot_errors_metrics_empty() {
         let snapshots = vec![];
-        let metrics = snapshot_errors_metrics(&snapshots).to_string();
+        let metrics = snapshot_errors_total(&snapshots);
 
-        assert!(metrics.contains("kopia_snapshot_errors_total 0"));
+        assert!(metrics.is_none());
     }
 
     #[test]
@@ -395,7 +553,9 @@ mod tests {
         let mut snapshot = create_test_snapshot("1", 1000, &["latest-1"]);
         snapshot.root_entry.summ.num_failed = 3;
 
-        let metrics = snapshot_failed_files_metrics(&[snapshot]).to_string();
+        let metrics = snapshot_failed_files_total(&[snapshot])
+            .expect("nonempty")
+            .to_string();
 
         assert!(metrics.contains("# HELP kopia_snapshot_failed_files_total"));
         assert!(metrics.contains("# TYPE kopia_snapshot_failed_files_total gauge"));
@@ -406,7 +566,9 @@ mod tests {
     fn test_snapshot_failed_files_metrics_no_failures() {
         let snapshot = create_test_snapshot("1", 1000, &["latest-1"]);
 
-        let metrics = snapshot_failed_files_metrics(&[snapshot]).to_string();
+        let metrics = snapshot_failed_files_total(&[snapshot])
+            .expect("nonempty")
+            .to_string();
 
         assert!(metrics.contains("kopia_snapshot_failed_files_total 0"));
     }
@@ -414,9 +576,9 @@ mod tests {
     #[test]
     fn test_snapshot_failed_files_metrics_empty() {
         let snapshots = vec![];
-        let metrics = snapshot_failed_files_metrics(&snapshots).to_string();
+        let metrics = snapshot_failed_files_total(&snapshots);
 
-        assert!(metrics.contains("kopia_snapshot_failed_files_total 0"));
+        assert!(metrics.is_none());
     }
 
     #[test]
@@ -427,7 +589,7 @@ mod tests {
             create_test_snapshot("3", 3000, &["monthly-1"]),
         ];
 
-        let metrics = snapshots_total_metrics(&snapshots).to_string();
+        let metrics = snapshots_total(&snapshots).to_string();
 
         assert!(metrics.contains("# HELP kopia_snapshots_total"));
         assert!(metrics.contains("# TYPE kopia_snapshots_total gauge"));
@@ -437,7 +599,7 @@ mod tests {
     #[test]
     fn test_snapshots_total_metrics_empty() {
         let snapshots = vec![];
-        let metrics = snapshots_total_metrics(&snapshots).to_string();
+        let metrics = snapshots_total(&snapshots).to_string();
 
         assert!(metrics.contains("kopia_snapshots_total 0"));
     }
@@ -445,7 +607,7 @@ mod tests {
     #[test]
     fn test_snapshots_total_metrics_single() {
         let snapshots = vec![create_test_snapshot("1", 1000, &["latest-1"])];
-        let metrics = snapshots_total_metrics(&snapshots).to_string();
+        let metrics = snapshots_total(&snapshots).to_string();
 
         assert!(metrics.contains("kopia_snapshots_total 1"));
     }
@@ -519,13 +681,25 @@ mod tests {
             # TYPE kopia_snapshot_age_seconds gauge
             kopia_snapshot_age_seconds 334678
 
+            # HELP kopia_snapshot_last_success_timestamp Unix timestamp of last successful snapshot
+            # TYPE kopia_snapshot_last_success_timestamp gauge
+            kopia_snapshot_last_success_timestamp 1755129606
+
             # HELP kopia_snapshot_errors_total Total errors in latest snapshot
             # TYPE kopia_snapshot_errors_total gauge
             kopia_snapshot_errors_total 0
 
+            # HELP kopia_snapshot_ignored_errors_total Ignored errors in latest snapshot
+            # TYPE kopia_snapshot_ignored_errors_total gauge
+            kopia_snapshot_ignored_errors_total 0
+
             # HELP kopia_snapshot_failed_files_total Number of failed files in latest snapshot
             # TYPE kopia_snapshot_failed_files_total gauge
             kopia_snapshot_failed_files_total 0
+
+            # HELP kopia_snapshot_size_change_bytes Change in size from previous snapshot
+            # TYPE kopia_snapshot_size_change_bytes gauge
+            kopia_snapshot_size_change_bytes 1116951
 
             # HELP kopia_snapshots_total Total number of snapshots
             # TYPE kopia_snapshots_total gauge

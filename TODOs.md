@@ -1,1 +1,2 @@
-- [ ] look over the unstaged changes listed in the README.md, and determine whether this is the right solution for the empty snapshots case (thinking about whether this will help for prometheus alertmanager rules)
+- [x] update the metric implementation based on the unstaged changes listed in the README.md
+- [x] review the function names in `src/metrics.rs` to see if any can be renamed for consistency (e.g. some start with "latest" even though multiple create the latest one.) Consider making them more tied to the metric name

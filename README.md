@@ -27,15 +27,15 @@ Monitoring for an unattended backup should verify these key tenets:
 ## Metrics
 
 ### New snapshot health
-- `kopia_snapshot_age_seconds` - Age of newest snapshot in seconds
-- `kopia_snapshot_last_success_timestamp` - Unix timestamp of last successful snapshot
+- `kopia_snapshot_age_seconds` - Age of newest snapshot in seconds (not present if the snapshots list is empty)
+- `kopia_snapshot_last_success_timestamp` - Unix timestamp of last successful snapshot (not present if the snapshots list is empty)
 
 ### Backup completion status
-- `kopia_snapshot_errors_total` - Total errors in latest snapshot
-- `kopia_snapshot_ignored_errors_total` - Ignored errors in latest snapshot
+- `kopia_snapshot_errors_total` - Total errors in latest snapshot (not present if the snapshots list is empty)
+- `kopia_snapshot_ignored_errors_total` - Ignored errors in latest snapshot (not present if the snapshots list is empty)
 
 ### Data integrity verification
-- `kopia_snapshot_failed_files_total` - Number of failed files in latest snapshot
+- `kopia_snapshot_failed_files_total` - Number of failed files in latest snapshot (not present if the snapshots list is empty)
 
 ### Repository connectivity
 - `kopia_repository_accessible` - 1 if repository is accessible, 0 otherwise
@@ -45,8 +45,8 @@ Monitoring for an unattended backup should verify these key tenets:
 - `kopia_snapshot_throughput_bytes_per_second` - Bytes per second throughput
 
 ### Remaining space
-- `kopia_snapshot_total_size_bytes` - Total size of snapshot in bytes
-- `kopia_snapshot_size_change_bytes` - Change in size from previous snapshot
+- `kopia_snapshot_total_size_bytes` - Total size of snapshot in bytes (not present if the snapshots list is empty)
+- `kopia_snapshot_size_change_bytes` - Change in size from previous snapshot (not present if the snapshots list is empty)
 
 ### Pruned snapshots
 - `kopia_snapshots_total` - Total number of snapshots
