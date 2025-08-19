@@ -105,6 +105,10 @@ fn serve_requests(server: Server, kopia_bin: &str, cache_duration: Duration) {
     }
 }
 
+fn calculate_delay_seconds(attempt: u32) -> u64 {
+    (1u64 << (attempt - 1)).min(16) // 1, 2, 4, 8, 16, 16, 16... seconds (capped at 16)
+}
+
 fn start_server_with_retry(bind_addr: &str, max_retries: u32) -> eyre::Result<Server> {
     let mut attempt = 1;
     let mut retries_remaining = max_retries;
@@ -128,7 +132,7 @@ fn start_server_with_retry(bind_addr: &str, max_retries: u32) -> eyre::Result<Se
                 }
 
                 // 3. If allowed, delay and continue
-                let delay_secs = 1u64 << (attempt - 1); // 1, 2, 4, 8, 16 seconds
+                let delay_secs = calculate_delay_seconds(attempt);
                 eprintln!("Bind attempt {attempt} failed: {e}. Retrying in {delay_secs}s...");
                 std::thread::sleep(Duration::from_secs(delay_secs));
 
@@ -186,5 +190,27 @@ mod tests {
         let err_msg = result.err().unwrap().to_string();
         assert!(err_msg.contains("Failed to bind to"));
         assert!(err_msg.contains("after 3 attempts")); // 1 initial + 2 retries = 3 attempts
+    }
+
+    #[test]
+    fn test_delay_calculation_and_cap() {
+        // Test exponential backoff sequence
+        assert_eq!(calculate_delay_seconds(1), 1); // 2^0 = 1
+        assert_eq!(calculate_delay_seconds(2), 2); // 2^1 = 2  
+        assert_eq!(calculate_delay_seconds(3), 4); // 2^2 = 4
+        assert_eq!(calculate_delay_seconds(4), 8); // 2^3 = 8
+        assert_eq!(calculate_delay_seconds(5), 16); // 2^4 = 16
+
+        // Test cap at 16 seconds
+        assert_eq!(calculate_delay_seconds(6), 16); // 2^5 = 32, but capped at 16
+        assert_eq!(calculate_delay_seconds(7), 16); // 2^6 = 64, but capped at 16
+        assert_eq!(calculate_delay_seconds(10), 16); // 2^9 = 512, but capped at 16
+
+        // Verify total delay for common retry counts
+        let total_delay_5_retries: u64 = (1..=6).map(calculate_delay_seconds).sum(); // 1+2+4+8+16+16=47s
+        assert_eq!(total_delay_5_retries, 47);
+
+        // Without cap, 6 attempts would be: 1+2+4+8+16+32=63s
+        // With cap: 1+2+4+8+16+16=47s (16s saved)
     }
 }
