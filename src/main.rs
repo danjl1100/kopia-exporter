@@ -23,7 +23,7 @@ struct Args {
     #[arg(short, long, default_value = "30")]
     cache_seconds: u64,
 
-    /// Maximum number of bind retry attempts (0 to disable retries)
+    /// Maximum number of bind retry attempts (0 = no retries, just 1 attempt)
     #[arg(short = 'r', long, default_value = "5")]
     max_bind_retries: u32,
 }
@@ -106,13 +106,11 @@ fn serve_requests(server: Server, kopia_bin: &str, cache_duration: Duration) {
 }
 
 fn start_server_with_retry(bind_addr: &str, max_retries: u32) -> eyre::Result<Server> {
-    if max_retries == 0 {
-        return Server::http(bind_addr)
-            .map_err(|e| eyre::eyre!("Failed to bind to {}: {}", bind_addr, e));
-    }
+    let mut attempt = 1;
+    let mut retries_remaining = max_retries;
 
-    let mut last_error = None;
-    for attempt in 1..=max_retries {
+    loop {
+        // 1. First attempt (or retry attempt)
         match Server::http(bind_addr) {
             Ok(server) => {
                 if attempt > 1 {
@@ -121,23 +119,24 @@ fn start_server_with_retry(bind_addr: &str, max_retries: u32) -> eyre::Result<Se
                 return Ok(server);
             }
             Err(e) => {
-                last_error = Some(e);
-                if attempt < max_retries {
-                    let delay_secs = 1u64 << (attempt - 1); // 1, 2, 4, 8, 16 seconds
-                    let error_ref = last_error.as_ref().expect("last_error should be set");
-                    eprintln!(
-                        "Bind attempt {attempt} failed: {error_ref}. Retrying in {delay_secs}s..."
-                    );
-                    std::thread::sleep(Duration::from_secs(delay_secs));
+                // 2. If fails, check retries remaining
+                if retries_remaining == 0 {
+                    // 4. If exhausted, return error
+                    return Err(eyre::eyre!(
+                        "Failed to bind to {bind_addr} after {attempt} attempts: {e}"
+                    ));
                 }
+
+                // 3. If allowed, delay and continue
+                let delay_secs = 1u64 << (attempt - 1); // 1, 2, 4, 8, 16 seconds
+                eprintln!("Bind attempt {attempt} failed: {e}. Retrying in {delay_secs}s...");
+                std::thread::sleep(Duration::from_secs(delay_secs));
+
+                attempt += 1;
+                retries_remaining -= 1;
             }
         }
     }
-
-    Err(eyre::eyre!(
-        "Failed to bind to {bind_addr} after {max_retries} attempts: {}",
-        last_error.expect("last_error should be set after loop")
-    ))
 }
 
 fn main() -> eyre::Result<()> {
@@ -174,6 +173,7 @@ mod tests {
         assert!(result.is_err());
         let err_msg = result.err().unwrap().to_string();
         assert!(err_msg.contains("Failed to bind to 127.0.0.1:99999"));
+        assert!(err_msg.contains("after 1 attempts")); // 0 retries = 1 attempt only
     }
 
     #[test]
@@ -185,6 +185,6 @@ mod tests {
         assert!(result.is_err());
         let err_msg = result.err().unwrap().to_string();
         assert!(err_msg.contains("Failed to bind to"));
-        assert!(err_msg.contains("after 2 attempts"));
+        assert!(err_msg.contains("after 3 attempts")); // 1 initial + 2 retries = 3 attempts
     }
 }
