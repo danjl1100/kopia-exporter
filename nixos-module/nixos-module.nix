@@ -48,6 +48,12 @@ in {
       description = "Cache duration in seconds for kopia snapshot data (0 to disable).";
     };
 
+    maxBindRetries = mkOption {
+      type = types.ints.unsigned;
+      default = 5;
+      description = "Maximum number of bind retry attempts (0 = no retries, just 1 attempt).";
+    };
+
     extraArgs = mkOption {
       type = types.listOf types.str;
       default = [];
@@ -59,13 +65,25 @@ in {
       default = {};
       description = "Environment variables to set for the kopia-exporter service.";
     };
+
+    after = mkOption {
+      type = types.listOf types.str;
+      default = ["network.target"];
+      description = "Systemd units that this service should start after.";
+    };
+
+    bindsTo = mkOption {
+      type = types.listOf types.str;
+      default = [];
+      description = "Systemd units that this service should bind to (stop when they stop).";
+    };
   };
 
   config = mkIf cfg.enable {
-    systemd.services.kopia-exporter = {
+    systemd.services.kopia-exporter = ({
       description = "Kopia Exporter - Prometheus metrics exporter for Kopia";
       wantedBy = ["multi-user.target"];
-      after = ["network.target"];
+      after = cfg.after;
 
       serviceConfig =
         {
@@ -109,8 +127,12 @@ in {
           --kopia-bin "${cfg.kopiaBin}" \
           --bind "${cfg.bind}" \
           --cache-seconds "${toString cfg.cacheSeconds}" \
+          --max-bind-retries "${toString cfg.maxBindRetries}" \
           ${escapeShellArgs cfg.extraArgs}
       '';
+    })
+    // lib.optionalAttrs (cfg.bindsTo != []) {
+      bindsTo = cfg.bindsTo;
     };
 
     users.users = mkIf (cfg.user == "kopia-exporter") {

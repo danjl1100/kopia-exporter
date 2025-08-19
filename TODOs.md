@@ -1,2 +1,2 @@
-- [x] the doc comment on `max_bind_retries` in the CLI arguments struct in `main.rs` makes it seem like a value of `0` should still attempt 1 connection attempt. Does it make sense to update the logic to allow 1 attempt?  (e.g. 0 retries = 1 attempt,  1 retry = 1 attempt + 1 retry,   5 retries = 1 attempt + 5 retries, etc.)
-- [x] try using a `loop` for the more natrual flow 1. first attempt 2. if fails, check retries remaining 3. if allowed, delay and continue, 4. if exhausted return error
+- [x] add the new `--max-bind-retries` option to the nixos module options
+- [x] expose the systemd `after` and `bindsTo` options in the nixos module
