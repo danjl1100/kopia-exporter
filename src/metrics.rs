@@ -331,44 +331,45 @@ fn snapshots_total(snapshots: &[Snapshot]) -> impl Display {
 /// Prometheus scraping.
 #[must_use]
 pub fn generate_all_metrics(snapshots: &[Snapshot], now: jiff::Timestamp) -> String {
-    let retention_metrics = snapshots_by_retention(snapshots);
-    let size_metrics = snapshot_total_size_bytes(snapshots);
-    let age_metrics = snapshot_age_seconds(snapshots, now);
-    let parse_error_metrics = snapshot_timestamp_parse_errors_total(snapshots);
-    let timestamp_metrics = snapshot_last_success_timestamp(snapshots);
-    let errors_metrics = snapshot_errors_total(snapshots);
-    let ignored_errors_metrics = snapshot_ignored_errors_total(snapshots);
-    let failed_files_metrics = snapshot_failed_files_total(snapshots);
-    let size_change_metrics = snapshot_size_change_bytes(snapshots);
-    let total_metrics = snapshots_total(snapshots);
-
-    let metrics: &[Option<&dyn Display>] = &[
-        Some(&retention_metrics),
-        size_metrics.as_ref().map(|m| m as &dyn Display),
-        age_metrics.as_ref().map(|m| m as &dyn Display),
-        parse_error_metrics.as_ref().map(|m| m as &dyn Display),
-        timestamp_metrics.as_ref().map(|m| m as &dyn Display),
-        errors_metrics.as_ref().map(|m| m as &dyn Display),
-        ignored_errors_metrics.as_ref().map(|m| m as &dyn Display),
-        failed_files_metrics.as_ref().map(|m| m as &dyn Display),
-        size_change_metrics.as_ref().map(|m| m as &dyn Display),
-        Some(&total_metrics),
-    ];
-
-    let mut output = String::new();
-
-    let mut first = Some(());
-    for metric in metrics {
-        use std::fmt::Write as _;
-
-        if let Some(m) = metric {
-            if first.take().is_none() {
-                output.push('\n');
+    struct Accumulator {
+        output: String,
+        first: Option<()>,
+    }
+    impl Accumulator {
+        fn new() -> Self {
+            Self {
+                output: String::new(),
+                first: Some(()),
             }
-            write!(&mut output, "{m}").expect("infallible");
+        }
+        fn push(mut self, metric: Option<impl Display>) -> Self {
+            use std::fmt::Write as _;
+            if let Some(m) = metric {
+                let Self { first, output } = &mut self;
+                if first.take().is_none() {
+                    output.push('\n');
+                }
+                write!(output, "{m}").expect("infallible");
+            }
+            self
+        }
+        fn finish(self) -> String {
+            self.output
         }
     }
-    output
+
+    Accumulator::new()
+        .push(Some(snapshots_by_retention(snapshots)))
+        .push(snapshot_total_size_bytes(snapshots))
+        .push(snapshot_age_seconds(snapshots, now))
+        .push(snapshot_timestamp_parse_errors_total(snapshots))
+        .push(snapshot_last_success_timestamp(snapshots))
+        .push(snapshot_errors_total(snapshots))
+        .push(snapshot_ignored_errors_total(snapshots))
+        .push(snapshot_failed_files_total(snapshots))
+        .push(snapshot_size_change_bytes(snapshots))
+        .push(Some(snapshots_total(snapshots)))
+        .finish()
 }
 
 #[cfg(test)]

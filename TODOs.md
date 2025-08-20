@@ -1,2 +1,1 @@
-- [x] add the new `--max-bind-retries` option to the nixos module options
-- [x] expose the systemd `after` and `bindsTo` options in the nixos module
+- [ ] add optional basic authentication, controllable via CLI args and the nixos module options
