@@ -3,9 +3,11 @@
 use eyre::Result;
 use kopia_exporter::kopia;
 use std::fs;
-use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
+
+mod test_helpers;
+use test_helpers::{ServerConfig, TestServer, assertions, get_test_log_path};
 
 #[test]
 fn test_subprocess_with_fake_kopia() {
@@ -26,49 +28,22 @@ fn test_subprocess_with_fake_kopia() {
 #[test]
 fn test_web_server_integration() -> Result<()> {
     let fake_kopia_bin = env!("CARGO_BIN_EXE_fake-kopia");
-    let kopia_exporter_bin = env!("CARGO_BIN_EXE_kopia-exporter");
-
-    // Start the web server in the background
-    let mut server_process = Command::new(kopia_exporter_bin)
-        .args(["--kopia-bin", fake_kopia_bin, "--bind", "127.0.0.1:9092"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-
-    // Wait for server to start
-    thread::sleep(Duration::from_millis(500));
+    let config = ServerConfig::new(fake_kopia_bin)?;
+    let server = TestServer::start(config)?;
 
     // Test the root endpoint
-    let root_response = minreq::get("http://127.0.0.1:9092/").send()?;
-
+    let root_response = server.get("/")?;
     assert_eq!(root_response.status_code, 200);
-    let root_text = root_response.as_str()?;
-    assert!(root_text.contains("Kopia Exporter"));
-    assert!(root_text.contains("/metrics"));
+    assertions::assert_root_page_content(root_response.as_str()?)?;
 
     // Test the metrics endpoint
-    let metrics_response = minreq::get("http://127.0.0.1:9092/metrics").send()?;
-
+    let metrics_response = server.get("/metrics")?;
     assert_eq!(metrics_response.status_code, 200);
-    let metrics_text = metrics_response.as_str()?;
-
-    // Verify Prometheus metrics format and content
-    assert!(metrics_text.contains("# HELP kopia_snapshots_by_retention"));
-    assert!(metrics_text.contains("# TYPE kopia_snapshots_by_retention gauge"));
-    assert!(metrics_text.contains("kopia_snapshots_by_retention{retention_reason=\"latest-1\"} 1"));
-
-    assert!(metrics_text.contains("# HELP kopia_snapshot_total_size_bytes"));
-    assert!(metrics_text.contains("# TYPE kopia_snapshot_total_size_bytes gauge"));
-    assert!(metrics_text.contains("kopia_snapshot_total_size_bytes 42154950324"));
+    assertions::assert_prometheus_metrics(metrics_response.as_str()?)?;
 
     // Test 404 endpoint
-    let not_found_response = minreq::get("http://127.0.0.1:9092/nonexistent").send()?;
-
+    let not_found_response = server.get("/nonexistent")?;
     assert_eq!(not_found_response.status_code, 404);
-
-    // Clean up: terminate the server process
-    server_process.kill()?;
-    server_process.wait()?;
 
     Ok(())
 }
@@ -76,67 +51,38 @@ fn test_web_server_integration() -> Result<()> {
 #[test]
 fn test_caching_reduces_subprocess_calls() -> Result<()> {
     let fake_kopia_bin = env!("CARGO_BIN_EXE_fake-kopia");
-    let kopia_exporter_bin = env!("CARGO_BIN_EXE_kopia-exporter");
 
     // Test with caching enabled (1 second cache for quick testing)
-    let log_file_cached = format!("/tmp/fake-kopia-cache-test-{}.log", std::process::id());
-
-    let mut server_process_cached = Command::new(kopia_exporter_bin)
-        .args([
-            "--kopia-bin",
-            fake_kopia_bin,
-            "--bind",
-            "127.0.0.1:9093",
-            "--cache-seconds",
-            "1",
-        ])
-        .env("FAKE_KOPIA_LOG", &log_file_cached)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-
-    thread::sleep(Duration::from_millis(500));
+    let log_file_cached = get_test_log_path("cache");
+    let cached_config = ServerConfig::new(fake_kopia_bin)?
+        .with_args(["--cache-seconds", "1"])
+        .with_env("FAKE_KOPIA_LOG", &log_file_cached);
+    let cached_server = TestServer::start(cached_config)?;
 
     // Make 3 rapid requests
     for _ in 0..3 {
-        let _ = minreq::get("http://127.0.0.1:9093/metrics").send()?;
-        thread::sleep(Duration::from_millis(50)); // Small delay between requests
+        let _ = cached_server.get("/metrics")?;
+        thread::sleep(Duration::from_millis(50));
     }
-
-    server_process_cached.kill()?;
-    server_process_cached.wait()?;
+    drop(cached_server);
 
     // Count invocations with caching
     let cached_log = fs::read_to_string(&log_file_cached).unwrap_or_default();
     let cached_calls = cached_log.lines().count();
 
     // Test with caching disabled
-    let log_file_no_cache = format!("/tmp/fake-kopia-no-cache-test-{}.log", std::process::id());
-
-    let mut server_process_no_cache = Command::new(kopia_exporter_bin)
-        .args([
-            "--kopia-bin",
-            fake_kopia_bin,
-            "--bind",
-            "127.0.0.1:9094",
-            "--cache-seconds",
-            "0",
-        ])
-        .env("FAKE_KOPIA_LOG", &log_file_no_cache)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-
-    thread::sleep(Duration::from_millis(500));
+    let log_file_no_cache = get_test_log_path("no-cache");
+    let no_cache_config = ServerConfig::new(fake_kopia_bin)?
+        .with_args(["--cache-seconds", "0"])
+        .with_env("FAKE_KOPIA_LOG", &log_file_no_cache);
+    let no_cache_server = TestServer::start(no_cache_config)?;
 
     // Make 3 rapid requests
     for _ in 0..3 {
-        let _ = minreq::get("http://127.0.0.1:9094/metrics").send()?;
+        let _ = no_cache_server.get("/metrics")?;
         thread::sleep(Duration::from_millis(50));
     }
-
-    server_process_no_cache.kill()?;
-    server_process_no_cache.wait()?;
+    drop(no_cache_server);
 
     // Count invocations without caching
     let no_cache_log = fs::read_to_string(&log_file_no_cache).unwrap_or_default();
@@ -163,50 +109,27 @@ fn test_caching_reduces_subprocess_calls() -> Result<()> {
 #[test]
 fn test_basic_auth_integration() -> Result<()> {
     let fake_kopia_bin = env!("CARGO_BIN_EXE_fake-kopia");
-    let kopia_exporter_bin = env!("CARGO_BIN_EXE_kopia-exporter");
-
-    // Test with username/password auth
-    let mut server_process = Command::new(kopia_exporter_bin)
-        .args([
-            "--kopia-bin",
-            fake_kopia_bin,
-            "--bind",
-            "127.0.0.1:9095",
-            "--auth-username",
-            "testuser",
-            "--auth-password",
-            "testpass",
-        ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-
-    thread::sleep(Duration::from_millis(500));
+    let config = ServerConfig::new(fake_kopia_bin)?.with_args([
+        "--auth-username",
+        "testuser",
+        "--auth-password",
+        "testpass",
+    ]);
+    let server = TestServer::start(config)?;
 
     // Test unauthenticated request - should get 401
-    let unauth_response = minreq::get("http://127.0.0.1:9095/metrics").send()?;
+    let unauth_response = server.get("/metrics")?;
     assert_eq!(unauth_response.status_code, 401);
     assert!(unauth_response.headers.get("www-authenticate").is_some());
 
     // Test with correct credentials
-    let auth_response = minreq::get("http://127.0.0.1:9095/metrics")
-        .with_header("Authorization", "Basic dGVzdHVzZXI6dGVzdHBhc3M=") // testuser:testpass
-        .send()?;
+    let auth_response = server.get_with_auth("/metrics", "Basic dGVzdHVzZXI6dGVzdHBhc3M=")?; // testuser:testpass
     assert_eq!(auth_response.status_code, 200);
-    assert!(
-        auth_response
-            .as_str()?
-            .contains("# HELP kopia_snapshots_by_retention")
-    );
+    assertions::assert_prometheus_metrics(auth_response.as_str()?)?;
 
     // Test with incorrect credentials
-    let bad_auth_response = minreq::get("http://127.0.0.1:9095/metrics")
-        .with_header("Authorization", "Basic aW52YWxpZDppbnZhbGlk") // invalid:invalid
-        .send()?;
+    let bad_auth_response = server.get_with_auth("/metrics", "Basic aW52YWxpZDppbnZhbGlk")?; // invalid:invalid
     assert_eq!(bad_auth_response.status_code, 401);
-
-    server_process.kill()?;
-    server_process.wait()?;
 
     Ok(())
 }
@@ -216,52 +139,29 @@ fn test_basic_auth_credentials_file_integration() -> Result<()> {
     use std::io::Write;
 
     let fake_kopia_bin = env!("CARGO_BIN_EXE_fake-kopia");
-    let kopia_exporter_bin = env!("CARGO_BIN_EXE_kopia-exporter");
 
     // Create temporary credentials file
     let mut temp_file = tempfile::NamedTempFile::new()?;
     writeln!(temp_file, "fileuser:filepass")?;
     let temp_path = temp_file.path().to_string_lossy().to_string();
 
-    // Test with credentials file auth
-    let mut server_process = Command::new(kopia_exporter_bin)
-        .args([
-            "--kopia-bin",
-            fake_kopia_bin,
-            "--bind",
-            "127.0.0.1:9096",
-            "--auth-credentials-file",
-            &temp_path,
-        ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-
-    thread::sleep(Duration::from_millis(500));
+    let config =
+        ServerConfig::new(fake_kopia_bin)?.with_args(["--auth-credentials-file", &temp_path]);
+    let server = TestServer::start(config)?;
 
     // Test unauthenticated request - should get 401
-    let unauth_response = minreq::get("http://127.0.0.1:9096/metrics").send()?;
+    let unauth_response = server.get("/metrics")?;
     assert_eq!(unauth_response.status_code, 401);
 
     // Test with correct credentials from file
-    let auth_response = minreq::get("http://127.0.0.1:9096/metrics")
-        .with_header("Authorization", "Basic ZmlsZXVzZXI6ZmlsZXBhc3M=") // fileuser:filepass
-        .send()?;
+    let auth_response = server.get_with_auth("/metrics", "Basic ZmlsZXVzZXI6ZmlsZXBhc3M=")?; // fileuser:filepass
     assert_eq!(auth_response.status_code, 200);
-    assert!(
-        auth_response
-            .as_str()?
-            .contains("# HELP kopia_snapshots_by_retention")
-    );
+    assertions::assert_prometheus_metrics(auth_response.as_str()?)?;
 
     // Test with incorrect credentials
-    let bad_auth_response = minreq::get("http://127.0.0.1:9096/metrics")
-        .with_header("Authorization", "Basic d3JvbmdVc2VyOndyb25nUGFzcw==") // wrongUser:wrongPass
-        .send()?;
+    let bad_auth_response =
+        server.get_with_auth("/metrics", "Basic d3JvbmdVc2VyOndyb25nUGFzcw==")?; // wrongUser:wrongPass
     assert_eq!(bad_auth_response.status_code, 401);
-
-    server_process.kill()?;
-    server_process.wait()?;
 
     Ok(())
 }
