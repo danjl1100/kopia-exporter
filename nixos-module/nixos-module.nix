@@ -77,63 +77,106 @@ in {
       default = [];
       description = "Systemd units that this service should bind to (stop when they stop).";
     };
+
+    auth = {
+      enable = mkEnableOption "basic authentication for the HTTP server";
+
+      username = mkOption {
+        type = types.str;
+        default = "";
+        description = "Username for basic authentication.";
+      };
+
+      password = mkOption {
+        type = types.str;
+        default = "";
+        description = "Password for basic authentication.";
+      };
+
+      credentialsFile = mkOption {
+        type = types.nullOr types.path;
+        default = null;
+        description = "Path to file containing 'username:password' for basic authentication. Takes precedence over username/password options.";
+      };
+    };
   };
 
   config = mkIf cfg.enable {
-    systemd.services.kopia-exporter = ({
-      description = "Kopia Exporter - Prometheus metrics exporter for Kopia";
-      wantedBy = ["multi-user.target"];
-      after = cfg.after;
+    assertions = [
+      {
+        assertion =
+          !cfg.auth.enable
+          || (
+            (cfg.auth.credentialsFile != null) != (cfg.auth.username != "" && cfg.auth.password != "")
+          );
+        message = "auth.enable requires either credentialsFile OR both username and password, but not both";
+      }
+    ];
+    systemd.services.kopia-exporter =
+      {
+        description = "Kopia Exporter - Prometheus metrics exporter for Kopia";
+        wantedBy = ["multi-user.target"];
+        after = cfg.after;
 
-      serviceConfig =
-        {
-          Type = "simple";
-          User = cfg.user;
-          Group = cfg.group;
-          Restart = "always";
-          RestartSec = "10s";
+        serviceConfig =
+          {
+            Type = "simple";
+            User = cfg.user;
+            Group = cfg.group;
+            Restart = "always";
+            RestartSec = "10s";
 
-          # Security hardening
-          NoNewPrivileges = true;
-          PrivateTmp = true;
-          ProtectSystem = "strict";
-          ProtectKernelTunables = true;
-          ProtectKernelModules = true;
-          ProtectControlGroups = true;
-          RestrictRealtime = true;
-          RestrictSUIDSGID = true;
-          RemoveIPC = true;
-          PrivateMounts = true;
+            # Security hardening
+            NoNewPrivileges = true;
+            PrivateTmp = true;
+            ProtectSystem = "strict";
+            ProtectKernelTunables = true;
+            ProtectKernelModules = true;
+            ProtectControlGroups = true;
+            RestrictRealtime = true;
+            RestrictSUIDSGID = true;
+            RemoveIPC = true;
+            PrivateMounts = true;
 
-          # Allow home directory access for child process (kopia cache and credentials)
-          ProtectHome = false;
-          # Allow write access to user home directory for kopia cache and logs
-          ReadWritePaths = [config.users.users.${cfg.user}.home];
-          # Allow network access for the HTTP server
-          PrivateNetwork = false;
+            # Allow home directory access for child process (kopia cache and credentials)
+            ProtectHome = false;
+            # Allow write access to user home directory for kopia cache and logs
+            ReadWritePaths = [config.users.users.${cfg.user}.home];
+            # Allow network access for the HTTP server
+            PrivateNetwork = false;
 
-          # Memory and process limits
-          MemoryHigh = "128M";
-          MemoryMax = "256M";
-          # Allow sufficient tasks for Go runtime (kopia subprocess needs multiple threads)
-          TasksMax = 100;
-        }
-        // lib.optionalAttrs (cfg.environment != {}) {
-          Environment = lib.mapAttrsToList (name: value: "${name}=${value}") cfg.environment;
-        };
+            # Memory and process limits
+            MemoryHigh = "128M";
+            MemoryMax = "256M";
+            # Allow sufficient tasks for Go runtime (kopia subprocess needs multiple threads)
+            TasksMax = 100;
+          }
+          // lib.optionalAttrs (cfg.environment != {}) {
+            Environment = lib.mapAttrsToList (name: value: "${name}=${value}") cfg.environment;
+          };
 
-      script = ''
-        exec ${cfg.package}/bin/kopia-exporter \
-          --kopia-bin "${cfg.kopiaBin}" \
-          --bind "${cfg.bind}" \
-          --cache-seconds "${toString cfg.cacheSeconds}" \
-          --max-bind-retries "${toString cfg.maxBindRetries}" \
-          ${escapeShellArgs cfg.extraArgs}
-      '';
-    })
-    // lib.optionalAttrs (cfg.bindsTo != []) {
-      bindsTo = cfg.bindsTo;
-    };
+        script = let
+          authArgs =
+            if cfg.auth.enable
+            then
+              if cfg.auth.credentialsFile != null
+              then ["--auth-credentials-file" (toString cfg.auth.credentialsFile)]
+              else if cfg.auth.username != "" && cfg.auth.password != ""
+              then ["--auth-username" cfg.auth.username "--auth-password" cfg.auth.password]
+              else throw "auth.enable is true but neither credentialsFile nor both username and password are configured"
+            else [];
+        in ''
+          exec ${cfg.package}/bin/kopia-exporter \
+            --kopia-bin "${cfg.kopiaBin}" \
+            --bind "${cfg.bind}" \
+            --cache-seconds "${toString cfg.cacheSeconds}" \
+            --max-bind-retries "${toString cfg.maxBindRetries}" \
+            ${escapeShellArgs (authArgs ++ cfg.extraArgs)}
+        '';
+      }
+      // lib.optionalAttrs (cfg.bindsTo != []) {
+        bindsTo = cfg.bindsTo;
+      };
 
     users.users = mkIf (cfg.user == "kopia-exporter") {
       kopia-exporter = {

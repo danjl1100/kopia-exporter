@@ -159,3 +159,109 @@ fn test_caching_reduces_subprocess_calls() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_basic_auth_integration() -> Result<()> {
+    let fake_kopia_bin = env!("CARGO_BIN_EXE_fake-kopia");
+    let kopia_exporter_bin = env!("CARGO_BIN_EXE_kopia-exporter");
+
+    // Test with username/password auth
+    let mut server_process = Command::new(kopia_exporter_bin)
+        .args([
+            "--kopia-bin",
+            fake_kopia_bin,
+            "--bind",
+            "127.0.0.1:9095",
+            "--auth-username",
+            "testuser",
+            "--auth-password",
+            "testpass",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+
+    thread::sleep(Duration::from_millis(500));
+
+    // Test unauthenticated request - should get 401
+    let unauth_response = minreq::get("http://127.0.0.1:9095/metrics").send()?;
+    assert_eq!(unauth_response.status_code, 401);
+    assert!(unauth_response.headers.get("www-authenticate").is_some());
+
+    // Test with correct credentials
+    let auth_response = minreq::get("http://127.0.0.1:9095/metrics")
+        .with_header("Authorization", "Basic dGVzdHVzZXI6dGVzdHBhc3M=") // testuser:testpass
+        .send()?;
+    assert_eq!(auth_response.status_code, 200);
+    assert!(
+        auth_response
+            .as_str()?
+            .contains("# HELP kopia_snapshots_by_retention")
+    );
+
+    // Test with incorrect credentials
+    let bad_auth_response = minreq::get("http://127.0.0.1:9095/metrics")
+        .with_header("Authorization", "Basic aW52YWxpZDppbnZhbGlk") // invalid:invalid
+        .send()?;
+    assert_eq!(bad_auth_response.status_code, 401);
+
+    server_process.kill()?;
+    server_process.wait()?;
+
+    Ok(())
+}
+
+#[test]
+fn test_basic_auth_credentials_file_integration() -> Result<()> {
+    use std::io::Write;
+
+    let fake_kopia_bin = env!("CARGO_BIN_EXE_fake-kopia");
+    let kopia_exporter_bin = env!("CARGO_BIN_EXE_kopia-exporter");
+
+    // Create temporary credentials file
+    let mut temp_file = tempfile::NamedTempFile::new()?;
+    writeln!(temp_file, "fileuser:filepass")?;
+    let temp_path = temp_file.path().to_string_lossy().to_string();
+
+    // Test with credentials file auth
+    let mut server_process = Command::new(kopia_exporter_bin)
+        .args([
+            "--kopia-bin",
+            fake_kopia_bin,
+            "--bind",
+            "127.0.0.1:9096",
+            "--auth-credentials-file",
+            &temp_path,
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+
+    thread::sleep(Duration::from_millis(500));
+
+    // Test unauthenticated request - should get 401
+    let unauth_response = minreq::get("http://127.0.0.1:9096/metrics").send()?;
+    assert_eq!(unauth_response.status_code, 401);
+
+    // Test with correct credentials from file
+    let auth_response = minreq::get("http://127.0.0.1:9096/metrics")
+        .with_header("Authorization", "Basic ZmlsZXVzZXI6ZmlsZXBhc3M=") // fileuser:filepass
+        .send()?;
+    assert_eq!(auth_response.status_code, 200);
+    assert!(
+        auth_response
+            .as_str()?
+            .contains("# HELP kopia_snapshots_by_retention")
+    );
+
+    // Test with incorrect credentials
+    let bad_auth_response = minreq::get("http://127.0.0.1:9096/metrics")
+        .with_header("Authorization", "Basic d3JvbmdVc2VyOndyb25nUGFzcw==") // wrongUser:wrongPass
+        .send()?;
+    assert_eq!(bad_auth_response.status_code, 401);
+
+    server_process.kill()?;
+    server_process.wait()?;
+
+    Ok(())
+}

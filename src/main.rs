@@ -3,6 +3,7 @@
 //! This application exports metrics from Kopia backup repositories in a format
 //! suitable for Prometheus monitoring.
 
+use base64::prelude::*;
 use clap::Parser;
 use kopia_exporter::{Snapshot, get_snapshots_from_command, metrics};
 use std::time::{Duration, Instant};
@@ -26,6 +27,79 @@ struct Args {
     /// Maximum number of bind retry attempts (0 = no retries, just 1 attempt)
     #[arg(short = 'r', long, default_value = "5")]
     max_bind_retries: u32,
+
+    /// Basic auth username
+    #[arg(long)]
+    auth_username: Option<String>,
+
+    /// Basic auth password
+    #[arg(long)]
+    auth_password: Option<String>,
+
+    /// Path to file containing username:password for basic auth
+    #[arg(long)]
+    auth_credentials_file: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct BasicAuthConfig {
+    username: String,
+    password: String,
+}
+
+impl BasicAuthConfig {
+    fn from_args(args: &Args) -> eyre::Result<Option<Self>> {
+        match (
+            &args.auth_username,
+            &args.auth_password,
+            &args.auth_credentials_file,
+        ) {
+            (Some(username), Some(password), None) => Ok(Some(Self {
+                username: username.clone(),
+                password: password.clone(),
+            })),
+            (None, None, Some(file_path)) => {
+                let content = std::fs::read_to_string(file_path).map_err(|e| {
+                    eyre::eyre!(
+                        "Failed to read auth credentials file '{}': {}",
+                        file_path,
+                        e
+                    )
+                })?;
+                let content = content.trim();
+                if let Some((username, password)) = content.split_once(':') {
+                    Ok(Some(Self {
+                        username: username.to_string(),
+                        password: password.to_string(),
+                    }))
+                } else {
+                    Err(eyre::eyre!(
+                        "Auth credentials file must contain 'username:password'"
+                    ))
+                }
+            }
+            (None, None, None) => Ok(None),
+            _ => Err(eyre::eyre!(
+                "Invalid auth configuration: use either --auth-username + --auth-password OR --auth-credentials-file, not both"
+            )),
+        }
+    }
+
+    fn validate_request(&self, request: &tiny_http::Request) -> bool {
+        if let Some(auth_header) = request
+            .headers()
+            .iter()
+            .find(|h| h.field.as_str() == "Authorization")
+            && let Ok(auth_value) = std::str::from_utf8(auth_header.value.as_bytes())
+            && let Some(credentials) = auth_value.strip_prefix("Basic ")
+            && let Ok(decoded) = BASE64_STANDARD.decode(credentials)
+            && let Ok(decoded_str) = std::str::from_utf8(&decoded)
+        {
+            let expected = format!("{}:{}", self.username, self.password);
+            return decoded_str == expected;
+        }
+        false
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -42,10 +116,35 @@ impl TimedSnapshots {
     }
 }
 
+fn send_unauthorized_response(request: tiny_http::Request) {
+    let header = Header::from_bytes(
+        &b"WWW-Authenticate"[..],
+        &b"Basic realm=\"Kopia Exporter\""[..],
+    )
+    .expect("Invalid header");
+    let response = Response::from_string("Unauthorized")
+        .with_status_code(401)
+        .with_header(header);
+    let _ = request.respond(response);
+}
+
 #[allow(clippy::needless_pass_by_value)] // Server is consumed by incoming_requests()
-fn serve_requests(server: Server, kopia_bin: &str, cache_duration: Duration) {
+fn serve_requests(
+    server: Server,
+    kopia_bin: &str,
+    cache_duration: Duration,
+    auth: Option<BasicAuthConfig>,
+) {
     let mut cache: Option<TimedSnapshots> = None;
     for request in server.incoming_requests() {
+        // Check authentication if configured
+        if let Some(ref auth_config) = auth
+            && !auth_config.validate_request(&request)
+        {
+            send_unauthorized_response(request);
+            continue;
+        }
+
         match (request.method(), request.url()) {
             (&Method::Get, "/metrics") => {
                 // 1. Check if cached value is available (clear if expired)
@@ -146,12 +245,17 @@ fn start_server_with_retry(bind_addr: &str, max_retries: u32) -> eyre::Result<Se
 fn main() -> eyre::Result<()> {
     let args = Args::parse();
 
+    let auth = BasicAuthConfig::from_args(&args)?;
+    if auth.is_some() {
+        println!("Basic authentication enabled");
+    }
+
     println!("Starting Kopia Exporter on {}", args.bind);
 
     let server = start_server_with_retry(&args.bind, args.max_bind_retries)?;
 
     let cache_duration = Duration::from_secs(args.cache_seconds);
-    serve_requests(server, &args.kopia_bin, cache_duration);
+    serve_requests(server, &args.kopia_bin, cache_duration, auth);
 
     Ok(())
 }

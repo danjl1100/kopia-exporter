@@ -27,6 +27,7 @@ unsafe_code = "forbid"
 broken_intra_doc_links = "deny"
 
 [dependencies]
+base64 = "0.22.1"
 clap = { version = "4.5.45", features = ["derive"] }
 eyre = "0.6.12"
 jiff = { version = "0.2.15", default-features = false, features = ["std"] }
@@ -37,3 +38,4 @@ tiny_http = "0.12"
 [dev-dependencies]
 insta = { version = "1.43.1", default-features = false }
 minreq = "2.12"
+tempfile = "3.10"

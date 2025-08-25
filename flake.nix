@@ -54,6 +54,16 @@
           kopia-exporter = self.packages.${system}.default;
         };
 
+        vm-auth-userpass-test =
+          (pkgs.callPackage ./nixos-module/nixos-vm-auth-test.nix {
+            kopia-exporter = self.packages.${system}.default;
+          }).userpass;
+
+        vm-auth-credfile-test =
+          (pkgs.callPackage ./nixos-module/nixos-vm-auth-test.nix {
+            kopia-exporter = self.packages.${system}.default;
+          }).credfile;
+
         alejandra-format =
           pkgs.runCommand "alejandra-format-check" {
             buildInputs = [pkgs.alejandra];
