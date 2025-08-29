@@ -34,9 +34,13 @@
             ${markdownContent}
             EOF
 
-            # Convert to HTML using pandoc
+            # Convert to HTML using pandoc and inject custom CSS
             pandoc -s -t html --metadata title="Kopia Exporter NixOS Module Options" \
-              kopia-exporter-options.md -o kopia-exporter-options.html
+              kopia-exporter-options.md -o kopia-exporter-options-temp.html
+
+            # Inject custom CSS directly into the HTML
+            sed 's|</head>|<style>/* Custom CSS for kopia-exporter documentation */body { max-width: 80em !important; }@media (max-width: 600px) { body { max-width: none !important; } }</style></head>|' \
+              kopia-exporter-options-temp.html > kopia-exporter-options.html
 
             # Copy to output
             mkdir -p $out
