@@ -1,0 +1,1 @@
+- [x] Fix the doc generation `nix build .#docs` to list the all the `auth` options. The generated markdown docs show `services.kopia-exporter.auth` with no description, and no listing of the nested options.

@@ -15,25 +15,56 @@
   };
 
   # Convert options to a simple format for documentation
-  optionsToMd = options:
+  optionsToMd = prefix: options:
     lib.concatStringsSep "\n\n" (
-      lib.mapAttrsToList (name: opt: ''
-        ## services.kopia-exporter.${name}
+      lib.flatten (
+        lib.mapAttrsToList (
+          name: opt:
+          # Skip internal _module options
+            if name == "_module"
+            then []
+            else let
+              fullName =
+                if prefix != ""
+                then "${prefix}.${name}"
+                else name;
+              currentSection = ''
+                ## services.kopia-exporter.${fullName}
 
-        **Type:** ${opt.type.description or "unknown"}
+                **Type:** ${
+                  if (opt ? type) && (opt.type ? description)
+                  then opt.type.description
+                  else "unknown"
+                }
 
-        **Default:** ${
-          if opt ? defaultText
-          then opt.defaultText.text
-          else if opt ? default
-          then builtins.toJSON opt.default
-          else "none"
-        }
+                **Default:** ${
+                  if opt ? defaultText
+                  then opt.defaultText.text
+                  else if opt ? default
+                  then builtins.toJSON opt.default
+                  else "none"
+                }
 
-        **Description:** ${opt.description or "No description provided."}
-      '')
-      options
+                **Description:** ${opt.description or "No description provided."}
+              '';
+              # Check if this is a submodule with nested options
+              nestedSections =
+                if (opt ? type) && (opt.type ? nestedTypes) && (opt.type.nestedTypes ? elemType) && (opt.type.nestedTypes.elemType ? getSubOptions)
+                then optionsToMd fullName (opt.type.nestedTypes.elemType.getSubOptions {})
+                else if (opt ? type) && (opt.type ? getSubOptions)
+                then optionsToMd fullName (opt.type.getSubOptions {})
+                else [];
+            in
+              [currentSection]
+              ++ (
+                if builtins.isList nestedSections
+                then nestedSections
+                else [nestedSections]
+              )
+        )
+        options
+      )
     );
 in
   "# Kopia Exporter NixOS Module Options\n\n"
-  + optionsToMd evaluated.options.services.kopia-exporter
+  + optionsToMd "" evaluated.options.services.kopia-exporter

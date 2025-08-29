@@ -78,26 +78,32 @@ in {
       description = "Systemd units that this service should bind to (stop when they stop).";
     };
 
-    auth = {
-      enable = mkEnableOption "basic authentication for the HTTP server";
+    auth = mkOption {
+      type = types.submodule {
+        options = {
+          enable = mkEnableOption "basic authentication for the HTTP server";
 
-      username = mkOption {
-        type = types.str;
-        default = "";
-        description = "Username for basic authentication.";
-      };
+          username = mkOption {
+            type = types.str;
+            default = "";
+            description = "Username for basic authentication.";
+          };
 
-      password = mkOption {
-        type = types.str;
-        default = "";
-        description = "Password for basic authentication.";
-      };
+          password = mkOption {
+            type = types.str;
+            default = "";
+            description = "Password for basic authentication.";
+          };
 
-      credentialsFile = mkOption {
-        type = types.nullOr types.path;
-        default = null;
-        description = "Path to file containing 'username:password' for basic authentication. Takes precedence over username/password options.";
+          credentialsFile = mkOption {
+            type = types.nullOr types.path;
+            default = null;
+            description = "Path to file containing 'username:password' for basic authentication. Takes precedence over username/password options.";
+          };
+        };
       };
+      default = {};
+      description = "Basic authentication configuration for the HTTP server.";
     };
   };
 
