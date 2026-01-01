@@ -97,10 +97,9 @@ impl Drop for TestServer {
 
 /// Common assertions for HTTP responses.
 pub mod assertions {
-    use eyre::Result;
 
     /// Assert that a response contains expected Prometheus metrics.
-    pub fn assert_prometheus_metrics(response_text: &str) -> Result<()> {
+    pub fn assert_prometheus_metrics(response_text: &str) {
         assert!(response_text.contains("# HELP kopia_snapshots_by_retention"));
         assert!(response_text.contains("# TYPE kopia_snapshots_by_retention gauge"));
         assert!(
@@ -110,15 +109,12 @@ pub mod assertions {
         assert!(response_text.contains("# HELP kopia_snapshot_total_size_bytes"));
         assert!(response_text.contains("# TYPE kopia_snapshot_total_size_bytes gauge"));
         assert!(response_text.contains("kopia_snapshot_total_size_bytes 42154950324"));
-
-        Ok(())
     }
 
     /// Assert that a response contains the root page content.
-    pub fn assert_root_page_content(response_text: &str) -> Result<()> {
+    pub fn assert_root_page_content(response_text: &str) {
         assert!(response_text.contains("Kopia Exporter"));
         assert!(response_text.contains("/metrics"));
-        Ok(())
     }
 }
 
@@ -128,7 +124,7 @@ pub fn get_test_bind_address() -> Result<String> {
     let addr = listener.local_addr()?;
     let port = addr.port();
     drop(listener);
-    Ok(format!("127.0.0.1:{}", port))
+    Ok(format!("127.0.0.1:{port}"))
 }
 
 /// Generate a unique log file path for testing.
@@ -137,6 +133,6 @@ pub fn get_test_bind_address() -> Result<String> {
 /// Panics if creating the temporary directory fails
 pub fn get_test_log_path(suffix: &str) -> (tempfile::TempDir, PathBuf) {
     let temp_dir = tempfile::tempdir().expect("test failed to create TempDir");
-    let path = temp_dir.path().join(format!("fake-kopia-{}.log", suffix));
+    let path = temp_dir.path().join(format!("fake-kopia-{suffix}.log"));
     (temp_dir, path)
 }

@@ -1,5 +1,7 @@
 //! Integration tests for kopia-exporter functionality.
 
+#![allow(clippy::unwrap_used)] // tests can unwrap
+
 use eyre::Result;
 use kopia_exporter::kopia;
 use std::fs;
@@ -34,12 +36,12 @@ fn test_web_server_integration() -> Result<()> {
     // Test the root endpoint
     let root_response = server.get("/")?;
     assert_eq!(root_response.status_code, 200);
-    assertions::assert_root_page_content(root_response.as_str()?)?;
+    assertions::assert_root_page_content(root_response.as_str()?);
 
     // Test the metrics endpoint
     let metrics_response = server.get("/metrics")?;
     assert_eq!(metrics_response.status_code, 200);
-    assertions::assert_prometheus_metrics(metrics_response.as_str()?)?;
+    assertions::assert_prometheus_metrics(metrics_response.as_str()?);
 
     // Test 404 endpoint
     let not_found_response = server.get("/nonexistent")?;
@@ -120,12 +122,12 @@ fn test_basic_auth_integration() -> Result<()> {
     // Test unauthenticated request - should get 401
     let unauth_response = server.get("/metrics")?;
     assert_eq!(unauth_response.status_code, 401);
-    assert!(unauth_response.headers.get("www-authenticate").is_some());
+    assert!(unauth_response.headers.contains_key("www-authenticate"));
 
     // Test with correct credentials
     let auth_response = server.get_with_auth("/metrics", "Basic dGVzdHVzZXI6dGVzdHBhc3M=")?; // testuser:testpass
     assert_eq!(auth_response.status_code, 200);
-    assertions::assert_prometheus_metrics(auth_response.as_str()?)?;
+    assertions::assert_prometheus_metrics(auth_response.as_str()?);
 
     // Test with incorrect credentials
     let bad_auth_response = server.get_with_auth("/metrics", "Basic aW52YWxpZDppbnZhbGlk")?; // invalid:invalid
@@ -156,7 +158,7 @@ fn test_basic_auth_credentials_file_integration() -> Result<()> {
     // Test with correct credentials from file
     let auth_response = server.get_with_auth("/metrics", "Basic ZmlsZXVzZXI6ZmlsZXBhc3M=")?; // fileuser:filepass
     assert_eq!(auth_response.status_code, 200);
-    assertions::assert_prometheus_metrics(auth_response.as_str()?)?;
+    assertions::assert_prometheus_metrics(auth_response.as_str()?);
 
     // Test with incorrect credentials
     let bad_auth_response =

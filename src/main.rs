@@ -262,6 +262,8 @@ fn main() -> eyre::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)] // tests can unwrap
+
     use super::*;
     use std::net::TcpListener;
 
@@ -300,7 +302,7 @@ mod tests {
     fn test_delay_calculation_and_cap() {
         // Test exponential backoff sequence
         assert_eq!(calculate_delay_seconds(1), 1); // 2^0 = 1
-        assert_eq!(calculate_delay_seconds(2), 2); // 2^1 = 2  
+        assert_eq!(calculate_delay_seconds(2), 2); // 2^1 = 2
         assert_eq!(calculate_delay_seconds(3), 4); // 2^2 = 4
         assert_eq!(calculate_delay_seconds(4), 8); // 2^3 = 8
         assert_eq!(calculate_delay_seconds(5), 16); // 2^4 = 16

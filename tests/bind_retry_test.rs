@@ -1,5 +1,8 @@
 //! Integration tests for bind retry functionality.
 
+#![allow(clippy::unwrap_used)] // tests can unwrap
+#![allow(clippy::panic)] // tests can panic
+
 use std::net::TcpListener;
 use std::process::{Command, Stdio};
 use std::thread;
@@ -28,7 +31,7 @@ fn test_bind_retry_with_occupied_port() {
     let output = Command::new(env!("CARGO_BIN_EXE_kopia-exporter"))
         .args([
             "--bind",
-            &format!("127.0.0.1:{}", port),
+            &format!("127.0.0.1:{port}"),
             "--max-bind-retries",
             "0",
         ])
@@ -58,7 +61,7 @@ fn test_bind_retry_success_after_port_freed() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_kopia-exporter"))
         .args([
             "--bind",
-            &format!("127.0.0.1:{}", port),
+            &format!("127.0.0.1:{port}"),
             "--max-bind-retries",
             "3",
         ])
@@ -95,6 +98,6 @@ fn test_bind_retry_success_after_port_freed() {
             child.kill().expect("Failed to kill process");
             child.wait().expect("Failed to wait for killed process");
         }
-        Err(e) => panic!("Error checking process status: {}", e),
+        Err(e) => panic!("Error checking process status: {e}"),
     }
 }
