@@ -48,11 +48,32 @@ enum RepositoryAction {
     Status,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum Sleep {
+    ForSecs(u8),
+    Forever,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    let sleep = std::env::var("FAKE_KOPIA_SLEEP_FOR_SECS")
+        .ok()
+        .map(|secs| secs.parse().map_or(Sleep::Forever, Sleep::ForSecs));
+
     // Log each invocation to a file for testing purposes
-    log_invocation()?;
+    log_invocation(sleep)?;
+
+    if let Some(sleep) = sleep {
+        match sleep {
+            Sleep::ForSecs(secs) => {
+                std::thread::sleep(std::time::Duration::from_secs(secs.into()));
+            }
+            Sleep::Forever => loop {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            },
+        }
+    }
 
     match cli.command {
         Commands::Snapshot { action } => handle_snapshot_command(&action)?,
@@ -62,13 +83,13 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn log_invocation() -> Result<()> {
+fn log_invocation(sleep: Option<Sleep>) -> Result<()> {
     if let Ok(log_path) = std::env::var("FAKE_KOPIA_LOG") {
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(log_path)?;
-        writeln!(file, "invocation")?;
+        writeln!(file, "invocation, {sleep:?}")?;
     }
     Ok(())
 }
