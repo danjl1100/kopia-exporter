@@ -2,6 +2,7 @@
 
 use eyre::Result;
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::Duration;
@@ -131,6 +132,11 @@ pub fn get_test_bind_address() -> Result<String> {
 }
 
 /// Generate a unique log file path for testing.
-pub fn get_test_log_path(suffix: &str) -> String {
-    format!("/tmp/fake-kopia-{}-test-{}.log", suffix, std::process::id())
+///
+/// # Panics
+/// Panics if creating the temporary directory fails
+pub fn get_test_log_path(suffix: &str) -> (tempfile::TempDir, PathBuf) {
+    let temp_dir = tempfile::tempdir().expect("test failed to create TempDir");
+    let path = temp_dir.path().join(format!("fake-kopia-{}.log", suffix));
+    (temp_dir, path)
 }

@@ -53,7 +53,7 @@ fn test_caching_reduces_subprocess_calls() -> Result<()> {
     let fake_kopia_bin = env!("CARGO_BIN_EXE_fake-kopia");
 
     // Test with caching enabled (1 second cache for quick testing)
-    let log_file_cached = get_test_log_path("cache");
+    let (_tempdir, log_file_cached) = get_test_log_path("cache");
     let cached_config = ServerConfig::new(fake_kopia_bin)?
         .with_args(["--cache-seconds", "1"])
         .with_env("FAKE_KOPIA_LOG", &log_file_cached);
@@ -71,7 +71,7 @@ fn test_caching_reduces_subprocess_calls() -> Result<()> {
     let cached_calls = cached_log.lines().count();
 
     // Test with caching disabled
-    let log_file_no_cache = get_test_log_path("no-cache");
+    let (_tempdir, log_file_no_cache) = get_test_log_path("no-cache");
     let no_cache_config = ServerConfig::new(fake_kopia_bin)?
         .with_args(["--cache-seconds", "0"])
         .with_env("FAKE_KOPIA_LOG", &log_file_no_cache);

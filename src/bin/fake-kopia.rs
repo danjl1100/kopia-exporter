@@ -68,7 +68,6 @@ fn log_invocation() -> Result<()> {
             .create(true)
             .append(true)
             .open(log_path)?;
-        // Log with both PID and parent PID to help distinguish test runs
         writeln!(file, "invocation")?;
     }
     Ok(())
