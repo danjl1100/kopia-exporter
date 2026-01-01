@@ -39,6 +39,10 @@ struct Args {
     /// Path to file containing username:password for basic auth
     #[arg(long)]
     auth_credentials_file: Option<String>,
+
+    /// Timeout in seconds for kopia command execution
+    #[arg(short = 't', long, default_value = "15.0")]
+    timeout: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -133,6 +137,7 @@ fn serve_requests(
     server: Server,
     kopia_bin: &str,
     cache_duration: Duration,
+    kopia_timeout: Duration,
     auth: Option<BasicAuthConfig>,
 ) {
     let mut cache: Option<TimedSnapshots> = None;
@@ -156,7 +161,10 @@ fn serve_requests(
 
                 // 2. Get snapshots (from cache or fresh fetch)
                 let current = cache.take().map_or_else(
-                    || get_snapshots_from_command(kopia_bin).map(TimedSnapshots::now),
+                    || {
+                        get_snapshots_from_command(kopia_bin, kopia_timeout)
+                            .map(TimedSnapshots::now)
+                    },
                     Ok,
                 );
 
@@ -255,7 +263,8 @@ fn main() -> eyre::Result<()> {
     let server = start_server_with_retry(&args.bind, args.max_bind_retries)?;
 
     let cache_duration = Duration::from_secs(args.cache_seconds);
-    serve_requests(server, &args.kopia_bin, cache_duration, auth);
+    let kopia_timeout = Duration::from_secs_f64(args.timeout);
+    serve_requests(server, &args.kopia_bin, cache_duration, kopia_timeout, auth);
 
     Ok(())
 }

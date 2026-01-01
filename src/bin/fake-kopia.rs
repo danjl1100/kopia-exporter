@@ -50,7 +50,7 @@ enum RepositoryAction {
 
 #[derive(Clone, Copy, Debug)]
 enum Sleep {
-    ForSecs(u8),
+    ForSecs(f64),
     Forever,
 }
 
@@ -67,7 +67,7 @@ fn main() -> Result<()> {
     if let Some(sleep) = sleep {
         match sleep {
             Sleep::ForSecs(secs) => {
-                std::thread::sleep(std::time::Duration::from_secs(secs.into()));
+                std::thread::sleep(std::time::Duration::from_secs_f64(secs));
             }
             Sleep::Forever => loop {
                 std::thread::sleep(std::time::Duration::from_secs(1));

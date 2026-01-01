@@ -8,8 +8,16 @@ A lightweight Prometheus metrics exporter for Kopia backup repositories. Built w
 ### Architecture Principles
 - **Library-first**: Core logic in lib.rs, minimal main.rs
 - **Framework agnostic**: Keep business logic separate from web framework
-- **Lightweight dependencies**: Prefer minimal dependency count
+- **Lightweight dependencies**: Prefer minimal dependency count; use manual implementations over adding dependencies when reasonable
 - **Comprehensive testing**: Both unit tests and integration tests with real subprocess calls
+
+### TDD Workflow
+When implementing new features:
+1. **Write tests first**: Create tests that exercise the desired behavior
+2. **Verify failure**: Run tests to confirm they fail (avoiding false positives)
+3. **Implement feature**: Write the minimum code to make tests pass
+4. **Verify success**: Run tests to confirm they now pass
+5. **Quality checks**: Run `cargo clippy` and `cargo fmt`
 
 ### Key Dependencies
 - **Web server**: `tiny_http` (only 5 additional dependencies)
@@ -21,7 +29,8 @@ A lightweight Prometheus metrics exporter for Kopia backup repositories. Built w
 - **Unit tests**: Test individual functions and modules
 - **Integration tests**: Test full subprocess pipeline with `fake-kopia` binary
 - **Web server tests**: End-to-end HTTP testing with real server process
-- **Test helpers**: Use helper functions to reduce verbose test setup
+- **Test helpers**: Create reusable helper functions to avoid duplication and reduce verbose test setup
+- **Error messages**: Include specific keywords in error messages for easier debugging and test verification
 
 ## File Organization
 - `src/lib.rs`: Public library interface

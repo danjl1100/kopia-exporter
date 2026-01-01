@@ -14,7 +14,8 @@ use test_helpers::{ServerConfig, TestServer, assertions, get_test_log_path};
 #[test]
 fn test_subprocess_with_fake_kopia() {
     let fake_kopia_bin = env!("CARGO_BIN_EXE_fake-kopia");
-    let snapshots = kopia::get_snapshots_from_command(fake_kopia_bin).unwrap();
+    let timeout = std::time::Duration::from_secs(15);
+    let snapshots = kopia::get_snapshots_from_command(fake_kopia_bin, timeout).unwrap();
 
     assert_eq!(snapshots.len(), 17);
 
@@ -166,4 +167,49 @@ fn test_basic_auth_credentials_file_integration() -> Result<()> {
     assert_eq!(bad_auth_response.status_code, 401);
 
     Ok(())
+}
+
+/// Helper function to test kopia timeout behavior with different sleep values.
+fn run_timeout_test(
+    sleep_value: &str,
+    expected_log_content: &str,
+    test_suffix: &str,
+) -> Result<()> {
+    let fake_kopia_bin = env!("CARGO_BIN_EXE_fake-kopia");
+
+    // Setup: log file to verify sleep parameter was passed correctly
+    let (_tempdir, log_file) = get_test_log_path(test_suffix);
+
+    // Configure server with specified sleep and 0.5 second timeout
+    let config = ServerConfig::new(fake_kopia_bin)?
+        .with_env("FAKE_KOPIA_SLEEP_FOR_SECS", sleep_value)
+        .with_env("FAKE_KOPIA_LOG", &log_file)
+        .with_args(["--timeout", "0.5"]);
+    let server = TestServer::start(config)?;
+
+    // Request metrics - should timeout and return 500
+    let response = server.get("/metrics")?;
+    assert_eq!(
+        response.status_code, 500,
+        "expect HTTP 500 for sleep {sleep_value:?}"
+    );
+
+    // Verify the sleep parameter was actually set (avoid false pass)
+    let log_content = fs::read_to_string(&log_file).unwrap_or_default();
+    assert!(
+        log_content.contains(expected_log_content),
+        "Expected log to show {expected_log_content}, got: {log_content}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_kopia_timeout_returns_500() -> Result<()> {
+    run_timeout_test("1", "ForSecs(1.0)", "timeout")
+}
+
+#[test]
+fn test_kopia_timeout_forever_returns_500() -> Result<()> {
+    run_timeout_test("forever", "Forever", "timeout-forever")
 }

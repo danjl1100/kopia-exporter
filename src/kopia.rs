@@ -1,7 +1,9 @@
 use eyre::{Result, eyre};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -96,27 +98,53 @@ pub fn get_retention_counts(snapshots: &[Snapshot]) -> BTreeMap<String, u32> {
 /// Returns an error if:
 /// - The kopia command fails to execute
 /// - The command returns a non-zero exit code
+/// - The command execution exceeds the specified timeout
 /// - The output cannot be parsed as UTF-8
 /// - The JSON output cannot be parsed as snapshot data
-pub fn get_snapshots_from_command(kopia_bin: &str) -> Result<Vec<Snapshot>> {
-    let output = Command::new(kopia_bin)
+pub fn get_snapshots_from_command(kopia_bin: &str, timeout: Duration) -> Result<Vec<Snapshot>> {
+    let mut child = Command::new(kopia_bin)
         .args(["snapshot", "list", "--json"])
-        .output()?;
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
 
-    if !output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(eyre!(
-            "kopia command failed with exit code: {}\nstdout: {}\nstderr: {}",
-            output.status.code().unwrap_or(-1),
-            stdout,
-            stderr
-        ));
+    let start = Instant::now();
+    let poll_interval = Duration::from_millis(50);
+
+    // Poll the child process until it completes or timeout is reached
+    loop {
+        if let Some(status) = child.try_wait()? {
+            // Process completed
+            let output = child.wait_with_output()?;
+
+            if !status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(eyre!(
+                    "kopia command failed with exit code: {}\nstdout: {}\nstderr: {}",
+                    status.code().unwrap_or(-1),
+                    stdout,
+                    stderr
+                ));
+            }
+
+            let stdout = String::from_utf8(output.stdout)?;
+            let snapshots = parse_snapshots(&stdout)?;
+            return Ok(snapshots);
+        }
+        // Process still running, check timeout
+        if start.elapsed() >= timeout {
+            // Timeout exceeded, kill the process
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(eyre!(
+                "kopia command timeout after {} seconds",
+                timeout.as_secs_f64()
+            ));
+        }
+        // Sleep briefly before checking again
+        thread::sleep(poll_interval);
     }
-
-    let stdout = String::from_utf8(output.stdout)?;
-    let snapshots = parse_snapshots(&stdout)?;
-    Ok(snapshots)
 }
 
 #[cfg(test)]
