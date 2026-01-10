@@ -11,12 +11,25 @@ pub use self::source_str::{Error as SourceStrError, SourceStr};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[expect(missing_docs)] // no need to document all fields
-pub struct Snapshot {
+pub struct SnapshotJson {
     pub id: String,
     pub source: Source,
     pub description: String,
     pub start_time: String,
     pub end_time: String,
+    pub stats: Stats,
+    pub root_entry: RootEntry,
+    pub retention_reason: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+#[expect(missing_docs)] // no need to document all fields
+pub struct Snapshot {
+    pub id: String,
+    pub source: Source,
+    pub description: String,
+    pub start_time: String,
+    pub end_time: Option<jiff::Timestamp>,
     pub stats: Stats,
     pub root_entry: RootEntry,
     pub retention_reason: Vec<String>,
@@ -72,6 +85,31 @@ pub struct Summary {
     pub num_failed: u32,
 }
 
+impl From<SnapshotJson> for Snapshot {
+    fn from(value: SnapshotJson) -> Self {
+        let SnapshotJson {
+            id,
+            source,
+            description,
+            start_time,
+            end_time,
+            stats,
+            root_entry,
+            retention_reason,
+        } = value;
+        Self {
+            id,
+            source,
+            description,
+            start_time,
+            end_time: end_time.parse().ok(),
+            stats,
+            root_entry,
+            retention_reason,
+        }
+    }
+}
+
 /// Parses JSON content into a vector of snapshots.
 ///
 /// # Errors
@@ -82,7 +120,7 @@ pub(crate) fn parse_snapshots(
     json_content: &str,
     invalid_source_fn: impl Fn(source_str::Error) -> eyre::Result<()>,
 ) -> Result<SourceMap<Vec<Snapshot>>> {
-    let snapshots: Vec<Snapshot> = serde_json::from_str(json_content)?;
+    let snapshots: Vec<SnapshotJson> = serde_json::from_str(json_content)?;
 
     // organize by [`SourceStr`]
     let mut map = SourceMap::new();
@@ -95,7 +133,7 @@ pub(crate) fn parse_snapshots(
             }
         };
         let list: &mut Vec<Snapshot> = map.entry(source_str).or_default();
-        list.push(snapshot);
+        list.push(snapshot.into());
     }
     Ok(map)
 }
@@ -398,17 +436,16 @@ pub(crate) mod test_util {
         map.entry(source.clone()).insert_entry(snapshots);
         (map, source)
     }
-}
 
-#[cfg(test)]
-pub mod tests {
-    use crate::{
-        RootEntry, Snapshot, Stats, Summary, get_retention_counts, parse_snapshots,
-        test_util::{create_test_source, single_map, source_str},
-    };
-
-    fn create_test_snapshot(id: &str, total_size: u64, retention_reasons: &[&str]) -> Snapshot {
-        Snapshot {
+    pub fn create_test_snapshot(id: &str, total_size: u64, retention_reasons: &[&str]) -> Snapshot {
+        create_test_snapshot_json(id, total_size, retention_reasons).into()
+    }
+    pub fn create_test_snapshot_json(
+        id: &str,
+        total_size: u64,
+        retention_reasons: &[&str],
+    ) -> SnapshotJson {
+        SnapshotJson {
             id: id.to_string(),
             source: create_test_source("/test"),
             description: "".to_string(),
@@ -444,6 +481,14 @@ pub mod tests {
             retention_reason: retention_reasons.iter().map(ToString::to_string).collect(),
         }
     }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use crate::{
+        get_retention_counts, parse_snapshots,
+        test_util::{create_test_snapshot, single_map, source_str},
+    };
 
     #[test]
     fn parse_single_snapshot() {

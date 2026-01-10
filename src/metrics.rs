@@ -190,8 +190,7 @@ fn snapshot_age_seconds(
         .filter_map(|(source, snapshots)| {
             let last = snapshots.last()?;
             let age_seconds = {
-                let end_time: jiff::Timestamp = last.end_time.parse().ok()?;
-                let age = now - end_time;
+                let age = now - last.end_time?;
                 let age_seconds = age
                     .total(jiff::Unit::Second)
                     .expect("relative reference time given");
@@ -239,13 +238,7 @@ fn snapshot_timestamp_parse_errors_total(
         .filter_map(|(source, snapshots)| {
             let error_count = snapshots
                 .iter()
-                .map(|snapshot| {
-                    if snapshot.end_time.parse::<jiff::Timestamp>().is_err() {
-                        1
-                    } else {
-                        0
-                    }
-                })
+                .map(|snapshot| if snapshot.end_time.is_none() { 1 } else { 0 })
                 .sum::<u32>();
 
             (error_count > 0).then(|| (source.clone(), error_count))
@@ -283,7 +276,7 @@ fn snapshot_last_success_timestamp(
         .iter()
         .filter_map(|(source, snapshots)| {
             let last = snapshots.last()?;
-            let end_time: jiff::Timestamp = last.end_time.parse().ok()?;
+            let end_time = last.end_time?;
             Some((source.clone(), end_time.as_second()))
         })
         .collect();
@@ -450,53 +443,14 @@ mod tests {
     #![allow(clippy::unwrap_used)] // tests can unwrap
     #![allow(clippy::panic)] // tests can panic
 
-    use super::*;
     use crate::{
-        kopia::{RootEntry, Snapshot, Source, Stats, Summary},
-        test_util::single_map,
+        metrics::{
+            generate_all_metrics, snapshot_age_seconds, snapshot_errors_total,
+            snapshot_failed_files_total, snapshot_timestamp_parse_errors_total,
+            snapshot_total_size_bytes, snapshots_by_retention, snapshots_total,
+        },
+        test_util::{create_test_snapshot, create_test_snapshot_json, single_map},
     };
-
-    fn create_test_snapshot(id: &str, total_size: u64, retention_reasons: &[&str]) -> Snapshot {
-        Snapshot {
-            id: id.to_string(),
-            source: Source {
-                host: "test".to_string(),
-                user_name: "user".to_string(),
-                path: "/test".to_string(),
-            },
-            description: "".to_string(),
-            start_time: "2025-08-14T00:00:00Z".to_string(),
-            end_time: "2025-08-14T00:01:00Z".to_string(),
-            stats: Stats {
-                total_size,
-                excluded_total_size: 0,
-                file_count: 10,
-                cached_files: 5,
-                non_cached_files: 5,
-                dir_count: 2,
-                excluded_file_count: 0,
-                excluded_dir_count: 0,
-                ignored_error_count: 0,
-                error_count: 0,
-            },
-            root_entry: RootEntry {
-                name: "test".to_string(),
-                entry_type: "d".to_string(),
-                mode: "0755".to_string(),
-                mtime: "2025-08-14T00:00:00Z".to_string(),
-                obj: "obj1".to_string(),
-                summ: Summary {
-                    size: total_size,
-                    files: 10,
-                    symlinks: 0,
-                    dirs: 2,
-                    max_time: "2025-08-14T00:00:00Z".to_string(),
-                    num_failed: 0,
-                },
-            },
-            retention_reason: retention_reasons.iter().map(ToString::to_string).collect(),
-        }
-    }
 
     #[test]
     fn test_snapshots_by_retention_metrics() {
@@ -549,8 +503,9 @@ mod tests {
         for minutes in [30, 100] {
             let now = jiff::Timestamp::now();
             let recent_time = now - minutes.minutes();
-            let mut snapshot = create_test_snapshot("1", 1000, &["latest-1"]);
+            let mut snapshot = create_test_snapshot_json("1", 1000, &["latest-1"]);
             snapshot.end_time = recent_time.to_string();
+            let snapshot = snapshot.into();
 
             let (map, _source) = single_map(vec![snapshot]);
 
@@ -589,8 +544,9 @@ mod tests {
 
     #[test]
     fn test_snapshot_age_metric_invalid_time() {
-        let mut snapshot = create_test_snapshot("1", 1000, &["latest-1"]);
+        let mut snapshot = create_test_snapshot_json("1", 1000, &["latest-1"]);
         snapshot.end_time = "invalid-time".to_string();
+        let snapshot = snapshot.into();
 
         let now = jiff::Timestamp::now();
 
