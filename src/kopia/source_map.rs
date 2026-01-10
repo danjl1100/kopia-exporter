@@ -52,15 +52,6 @@ impl<T> SourceMap<T> {
         }
     }
 }
-impl<T> IntoIterator for SourceMap<T> {
-    type Item = <BTreeMap<SourceStr, T> as IntoIterator>::Item;
-    type IntoIter = <BTreeMap<SourceStr, T> as IntoIterator>::IntoIter;
-
-    fn into_iter(self) -> Self::IntoIter {
-        let Self(inner) = self;
-        inner.into_iter()
-    }
-}
 impl<'a, T> IntoIterator for &'a SourceMap<T> {
     type Item = (&'a SourceStr, &'a T);
     type IntoIter = std::collections::btree_map::Iter<'a, SourceStr, T>;

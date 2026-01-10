@@ -1,18 +1,10 @@
-The integration tests use a test binary `fake-kopia` in order to test the `kopia` invocations in a controlled manner.
+- [ ] add tests for metrics modules that are missing tests (marked as an ignored `todo` tests), verify the metric calculation through inspecting the output metric strings
+    - see existing metric tests for good examples in metrics modules: `total_size_bytes` and `retention`
 
-ISSUE: If `kopia` hangs indefinintely (e.g. if the network is down, and not immediately reported as an error) then the web server also hangs.  For the purpose of debugging, this server should reply with HTTP `500` to indicate the intermittent timeout issue.
+------
 
-WORK DONE: Already added a new env var `FAKE_KOPIA_SLEEP_FOR_SECS` to the `fake-kopia.rs` test double.
-
-TODO:
-- [x] add a new test in `tests/integration_test.rs`:
-    1. SET trigger the new `FAKE_KOPIA_SLEEP_FOR_SECS` env var with value `1` in the test binary `src/bin/fake-kopia.rs`
-    2. SET `--timeout 0.5` (to shorten the timeout to 1/2 second, for the test)
-    3. VERIFY the `FAKE_KOPIA_LOG` log reports the input sleep (e.g. to avoid false-pass based on incorrectly passed sleep parameters)
-    4. VERIFY the metric endpoint responds with HTTP status code `500`
-- [x] refactor the new test into a function to avoid duplication when adding another test that gives a string `"forever"` for the env var, verifying the same result (timing out after 0.5 seconds with `500` HTTP error code)
-- [x] update the library to timeout when waiting on output from the kopia subcommand
-    - default timeout = 15 seconds, can be tunable by CLI argument `--timeout` (`f64`) to main
-    - no added dependencies - prefer a manual implementation using spawn() and thread timing
-    - update `fn get_snapshots_from_command` signature to add argument `timeout: Duration` (`std::time::Duration`)
-    - include "timeout" in the error message for easier debugging
+- [ ] add a metric `kopia_snapshot_source_parse_errors` (similar to `kopia_snapshot_timestamp_parse_errors_total`), that reports how many snapshots had invalid sources
+    - include a labels with the invalid data (examples in item below)
+- [ ] add a test similar to `test_snapshot_age_metric_invalid_time` that tests the invalid `user_name` and `host` field handling
+    - example: expect `kopia_snapshot_source_parse_errors{invalid_user="ba@d_username"} 2`, if there are 2 snapshots with that invalid username
+    - example: expect `kopia_snapshot_source_parse_errors{invalid_host="server_col:on"} 5`, if there are 5 snapshots with that invalid hostname

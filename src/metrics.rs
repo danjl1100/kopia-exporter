@@ -58,22 +58,16 @@ impl KopiaSnapshots {
     /// Prometheus scraping.
     #[must_use]
     pub fn generate_all_metrics(&self, now: jiff::Timestamp) -> String {
-        struct Accumulator {
-            output: String,
-            first: Option<()>,
-        }
+        struct Accumulator(String);
         impl Accumulator {
             fn new() -> Self {
-                Self {
-                    output: String::new(),
-                    first: Some(()),
-                }
+                Self(String::new())
             }
             fn push(mut self, metric: Option<impl Display>) -> Self {
                 use std::fmt::Write as _;
                 if let Some(m) = metric {
-                    let Self { first, output } = &mut self;
-                    if first.take().is_none() {
+                    let Self(output) = &mut self;
+                    if !output.is_empty() {
                         output.push('\n');
                     }
                     write!(output, "{m}").expect("infallible");
@@ -81,7 +75,8 @@ impl KopiaSnapshots {
                 self
             }
             fn finish(self) -> String {
-                self.output
+                let Self(output) = self;
+                output
             }
         }
 
