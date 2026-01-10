@@ -1,31 +1,40 @@
 //! Integration tests for kopia-exporter functionality.
 
 #![allow(clippy::unwrap_used)] // tests can unwrap
+#![allow(clippy::panic)] // tests can panic
 
+use self::test_helpers::{ServerConfig, TestServer, assertions, get_test_log_path};
 use eyre::Result;
+use kopia_exporter::SourceStr;
 use kopia_exporter::kopia;
 use std::fs;
 use std::thread;
 use std::time::Duration;
 
 mod test_helpers;
-use test_helpers::{ServerConfig, TestServer, assertions, get_test_log_path};
 
 #[test]
 fn test_subprocess_with_fake_kopia() {
     let fake_kopia_bin = env!("CARGO_BIN_EXE_fake-kopia");
     let timeout = std::time::Duration::from_secs(15);
-    let snapshots = kopia::get_snapshots_from_command(fake_kopia_bin, timeout).unwrap();
 
+    let source = SourceStr::new("kopia-system@milton:/persist-home".to_string());
+
+    let snapshots =
+        kopia::get_snapshots_from_command(fake_kopia_bin, timeout, |e| eyre::bail!(e)).unwrap();
+
+    let retention_counts = kopia::get_retention_counts(&snapshots)
+        .into_expect_only(&source)
+        .expect("single");
+    assert_eq!(retention_counts.get("latest-1"), Some(&1));
+
+    let snapshots = snapshots.into_expect_only(&source).expect("single");
     assert_eq!(snapshots.len(), 17);
 
     if let Some(latest) = snapshots.last() {
         assert_eq!(latest.id, "c5be996d125abae92340f3a658443b24");
         assert_eq!(latest.stats.error_count, 0);
     }
-
-    let retention_counts = kopia::get_retention_counts(&snapshots);
-    assert_eq!(retention_counts.get("latest-1"), Some(&1));
 }
 
 #[test]

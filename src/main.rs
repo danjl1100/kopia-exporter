@@ -5,7 +5,7 @@
 
 use base64::prelude::*;
 use clap::Parser;
-use kopia_exporter::{Snapshot, get_snapshots_from_command, metrics};
+use kopia_exporter::{Snapshot, SourceMap, get_snapshots_from_command, metrics};
 use std::time::{Duration, Instant};
 use tiny_http::{Header, Method, Response, Server};
 
@@ -108,13 +108,13 @@ impl BasicAuthConfig {
 
 #[derive(Debug, Clone)]
 struct TimedSnapshots {
-    snapshots: Vec<Snapshot>,
+    snapshots_map: SourceMap<Vec<Snapshot>>,
     created_at: Instant,
 }
 impl TimedSnapshots {
-    fn now(snapshots: Vec<Snapshot>) -> Self {
+    fn now(snapshots_map: SourceMap<Vec<Snapshot>>) -> Self {
         Self {
-            snapshots,
+            snapshots_map,
             created_at: Instant::now(),
         }
     }
@@ -162,17 +162,25 @@ fn serve_requests(
                 // 2. Get snapshots (from cache or fresh fetch)
                 let current = cache.take().map_or_else(
                     || {
-                        get_snapshots_from_command(kopia_bin, kopia_timeout)
-                            .map(TimedSnapshots::now)
+                        get_snapshots_from_command(
+                            kopia_bin,
+                            kopia_timeout,
+                            |e: kopia_exporter::kopia::SourceStrError| {
+                                // log data errors but otherwise ignore
+                                eprintln!("{:?}", eyre::eyre!(e));
+                                Ok(())
+                            },
+                        )
+                        .map(TimedSnapshots::now)
                     },
                     Ok,
                 );
 
                 // 3. Serve the result
                 match &current {
-                    Ok(TimedSnapshots { snapshots, .. }) => {
+                    Ok(TimedSnapshots { snapshots_map, .. }) => {
                         let now = jiff::Timestamp::now();
-                        let metrics_output = metrics::generate_all_metrics(snapshots, now);
+                        let metrics_output = metrics::generate_all_metrics(snapshots_map, now);
                         let header = Header::from_bytes(
                             &b"Content-Type"[..],
                             &b"text/plain; charset=utf-8"[..],
@@ -277,7 +285,7 @@ mod tests {
     use std::net::TcpListener;
 
     #[test]
-    fn test_start_server_with_retry_success_first_attempt() {
+    fn start_server_with_retry_success_first_attempt() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         drop(listener);
@@ -287,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn test_start_server_with_retry_no_retries() {
+    fn start_server_with_retry_no_retries() {
         let result = start_server_with_retry("127.0.0.1:99999", 0);
         assert!(result.is_err());
         let err_msg = result.err().unwrap().to_string();
@@ -296,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn test_start_server_with_retry_exhausted() {
+    fn start_server_with_retry_exhausted() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
 
@@ -308,7 +316,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delay_calculation_and_cap() {
+    fn delay_calculation_and_cap() {
         // Test exponential backoff sequence
         assert_eq!(calculate_delay_seconds(1), 1); // 2^0 = 1
         assert_eq!(calculate_delay_seconds(2), 2); // 2^1 = 2

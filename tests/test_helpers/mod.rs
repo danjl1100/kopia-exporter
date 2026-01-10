@@ -100,15 +100,27 @@ pub mod assertions {
 
     /// Assert that a response contains expected Prometheus metrics.
     pub fn assert_prometheus_metrics(response_text: &str) {
-        assert!(response_text.contains("# HELP kopia_snapshots_by_retention"));
-        assert!(response_text.contains("# TYPE kopia_snapshots_by_retention gauge"));
-        assert!(
-            response_text.contains("kopia_snapshots_by_retention{retention_reason=\"latest-1\"} 1")
-        );
-
-        assert!(response_text.contains("# HELP kopia_snapshot_total_size_bytes"));
-        assert!(response_text.contains("# TYPE kopia_snapshot_total_size_bytes gauge"));
-        assert!(response_text.contains("kopia_snapshot_total_size_bytes 42154950324"));
+        const EXPECT_LINES: &str = r#"
+# HELP kopia_snapshots_by_retention
+# TYPE kopia_snapshots_by_retention gauge
+kopia_snapshots_by_retention{source="kopia-system@milton:/persist-home",retention_reason="latest-1"} 1
+# HELP kopia_snapshot_total_size_bytes
+# TYPE kopia_snapshot_total_size_bytes gauge
+kopia_snapshot_total_size_bytes{source="kopia-system@milton:/persist-home"} 42154950324
+        "#;
+        let mut matched = 0;
+        for expect_line in EXPECT_LINES.lines() {
+            let expect_line = expect_line.trim();
+            if expect_line.is_empty() {
+                continue;
+            }
+            assert!(
+                response_text.contains(expect_line),
+                "expected line:\n{expect_line}\ninside of response:\n{response_text}"
+            );
+            matched += 1;
+        }
+        assert_eq!(matched, 6); // guard against silently breaking the test
     }
 
     /// Assert that a response contains the root page content.

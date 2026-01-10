@@ -5,6 +5,9 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+pub use self::source_map::SourceMap;
+pub use self::source_str::{Error as SourceStrError, SourceStr};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[expect(missing_docs)] // no need to document all fields
@@ -19,7 +22,7 @@ pub struct Snapshot {
     pub retention_reason: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[expect(missing_docs)] // no need to document all fields
 pub struct Source {
@@ -73,22 +76,46 @@ pub struct Summary {
 ///
 /// # Errors
 ///
-/// Returns an error if the JSON content cannot be parsed as snapshot data.
-pub(crate) fn parse_snapshots(json_content: &str) -> Result<Vec<Snapshot>> {
-    Ok(serde_json::from_str(json_content)?)
+/// Returns an error if the JSON content cannot be parsed as snapshot data, or
+/// `invalid_source_fn` returns an error
+pub(crate) fn parse_snapshots(
+    json_content: &str,
+    invalid_source_fn: impl Fn(source_str::Error) -> eyre::Result<()>,
+) -> Result<SourceMap<Vec<Snapshot>>> {
+    let snapshots: Vec<Snapshot> = serde_json::from_str(json_content)?;
+
+    // organize by [`SourceStr`]
+    let mut map = SourceMap::new();
+    for snapshot in snapshots {
+        let source_str = match snapshot.source.render() {
+            Ok(s) => s,
+            Err(e) => {
+                invalid_source_fn(e)?;
+                continue;
+            }
+        };
+        let list: &mut Vec<Snapshot> = map.entry(source_str).or_default();
+        list.push(snapshot);
+    }
+    Ok(map)
 }
 
 #[must_use]
-pub fn get_retention_counts(snapshots: &[Snapshot]) -> BTreeMap<String, u32> {
-    let mut counts = BTreeMap::new();
-
-    for snapshot in snapshots {
-        for reason in &snapshot.retention_reason {
-            *counts.entry(reason.clone()).or_insert(0) += 1;
-        }
-    }
-
-    counts
+pub fn get_retention_counts(
+    snapshots_map: &SourceMap<Vec<Snapshot>>,
+) -> SourceMap<BTreeMap<String, u32>> {
+    snapshots_map
+        .iter()
+        .map(|(source, snapshots)| {
+            let mut reason_counts = BTreeMap::<String, u32>::new();
+            for snapshot in snapshots {
+                for reason in &snapshot.retention_reason {
+                    *reason_counts.entry(reason.clone()).or_insert(0) += 1;
+                }
+            }
+            (source.clone(), reason_counts)
+        })
+        .collect()
 }
 
 /// Executes kopia command to retrieve snapshots and parses the output.
@@ -101,7 +128,12 @@ pub fn get_retention_counts(snapshots: &[Snapshot]) -> BTreeMap<String, u32> {
 /// - The command execution exceeds the specified timeout
 /// - The output cannot be parsed as UTF-8
 /// - The JSON output cannot be parsed as snapshot data
-pub fn get_snapshots_from_command(kopia_bin: &str, timeout: Duration) -> Result<Vec<Snapshot>> {
+/// - `invalid_source_fn` returns an error
+pub fn get_snapshots_from_command(
+    kopia_bin: &str,
+    timeout: Duration,
+    invalid_source_fn: impl Fn(source_str::Error) -> eyre::Result<()>,
+) -> Result<SourceMap<Vec<Snapshot>>> {
     let mut child = Command::new(kopia_bin)
         .args(["snapshot", "list", "--json"])
         .stdout(Stdio::piped())
@@ -129,8 +161,8 @@ pub fn get_snapshots_from_command(kopia_bin: &str, timeout: Duration) -> Result<
             }
 
             let stdout = String::from_utf8(output.stdout)?;
-            let snapshots = parse_snapshots(&stdout)?;
-            return Ok(snapshots);
+            let snapshots_map = parse_snapshots(&stdout, invalid_source_fn)?;
+            return Ok(snapshots_map);
         }
         // Process still running, check timeout
         if start.elapsed() >= timeout {
@@ -147,18 +179,238 @@ pub fn get_snapshots_from_command(kopia_bin: &str, timeout: Duration) -> Result<
     }
 }
 
+mod source_map {
+    use crate::SourceStr;
+    use std::collections::BTreeMap;
+
+    /// Map from [`SourceStr`] to the desired data elements
+    #[derive(Clone, Debug, Default)]
+    pub struct SourceMap<T>(BTreeMap<SourceStr, T>);
+    impl<T> SourceMap<T> {
+        #[must_use]
+        pub fn new() -> Self {
+            Self(BTreeMap::new())
+        }
+        pub fn entry(
+            &mut self,
+            key: SourceStr,
+        ) -> std::collections::btree_map::Entry<'_, SourceStr, T> {
+            let Self(inner) = self;
+            inner.entry(key)
+        }
+        /// Returns a single value if it is the only value
+        ///
+        /// # Errors
+        /// Returns an error if the source is not found or is not the only value
+        #[allow(clippy::missing_panics_doc)] // panic checks for logic error
+        pub fn into_expect_only(mut self, source: &SourceStr) -> Result<T, Self> {
+            let Self(inner) = &mut self;
+
+            let 1 = inner.len() else {
+                return Err(self);
+            };
+
+            let Some(value) = inner.remove(source) else {
+                return Err(self);
+            };
+
+            assert!(inner.is_empty(), "length 1, removed 1, should be empty");
+            Ok(value)
+        }
+        pub fn iter(&self) -> std::collections::btree_map::Iter<'_, SourceStr, T> {
+            let Self(inner) = self;
+            inner.iter()
+        }
+        #[must_use]
+        pub fn is_empty(&self) -> bool {
+            let Self(inner) = self;
+            inner.is_empty()
+        }
+        pub fn map_nonempty<U>(self, map_fn: impl FnOnce(Self) -> U) -> Option<U> {
+            if self.is_empty() {
+                None
+            } else {
+                Some(map_fn(self))
+            }
+        }
+    }
+    impl<T> IntoIterator for SourceMap<T> {
+        type Item = <BTreeMap<SourceStr, T> as IntoIterator>::Item;
+        type IntoIter = <BTreeMap<SourceStr, T> as IntoIterator>::IntoIter;
+
+        fn into_iter(self) -> Self::IntoIter {
+            let Self(inner) = self;
+            inner.into_iter()
+        }
+    }
+    impl<'a, T> IntoIterator for &'a SourceMap<T> {
+        type Item = (&'a SourceStr, &'a T);
+        type IntoIter = std::collections::btree_map::Iter<'a, SourceStr, T>;
+        fn into_iter(self) -> Self::IntoIter {
+            self.0.iter()
+        }
+    }
+    impl<T> FromIterator<(SourceStr, T)> for SourceMap<T> {
+        fn from_iter<U: IntoIterator<Item = (SourceStr, T)>>(iter: U) -> Self {
+            Self(iter.into_iter().collect())
+        }
+    }
+}
+
+mod source_str {
+    use crate::Source;
+
+    impl Source {
+        /// Converts from the JSON/typed [`Source`] to a flat string [`SourceStr`]
+        ///
+        /// # Errors
+        /// Returns an error if the `user_name` or `host` contain invalid characters that would
+        /// make the flat string representation ambiguous
+        pub fn render(&self) -> Result<SourceStr, Error> {
+            let Self {
+                host,
+                user_name,
+                path,
+            } = self;
+
+            let make_err = |kind| {
+                Err(Error {
+                    kind,
+                    value_source: self.clone(),
+                })
+            };
+
+            // reject invalid characters, to perserve uniqueness for SourceStr representation
+            {
+                let invalid_char = '@';
+                if user_name.contains(invalid_char) {
+                    return make_err(ErrorKind::InvalidUserName {
+                        user_name: user_name.clone(),
+                        invalid_char,
+                    });
+                }
+            }
+            {
+                let invalid_char = ':';
+                if host.contains(invalid_char) {
+                    return make_err(ErrorKind::InvalidHost {
+                        host: host.clone(),
+                        invalid_char,
+                    });
+                }
+            }
+
+            let rendered = format!("{user_name}@{host}:{path}");
+            Ok(SourceStr(rendered))
+        }
+    }
+    /// String version for a [`Source`] rendered for output
+    #[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct SourceStr(String);
+    impl SourceStr {
+        #[must_use]
+        pub fn new(value: String) -> Self {
+            Self(value)
+        }
+    }
+    impl std::fmt::Debug for SourceStr {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let Self(text) = self;
+            // wrap in Debug, to escape quotes
+            write!(f, "{text:?}")
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct Error {
+        kind: ErrorKind,
+        value_source: Source,
+    }
+    #[derive(Debug)]
+    enum ErrorKind {
+        InvalidUserName {
+            user_name: String,
+            invalid_char: char,
+        },
+        InvalidHost {
+            host: String,
+            invalid_char: char,
+        },
+    }
+    impl std::error::Error for Error {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self.kind {
+                ErrorKind::InvalidUserName { .. } | ErrorKind::InvalidHost { .. } => None,
+            }
+        }
+    }
+    impl std::fmt::Display for Error {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let Self { kind, value_source } = self;
+            match kind {
+                ErrorKind::InvalidUserName {
+                    user_name,
+                    invalid_char,
+                } => {
+                    write!(
+                        f,
+                        "invalid char {invalid_char:?} in user name {user_name:?}"
+                    )
+                }
+                ErrorKind::InvalidHost { host, invalid_char } => {
+                    write!(f, "invalid char {invalid_char:?} in host {host:?}")
+                }
+            }?;
+            write!(f, " in {value_source:?}")
+        }
+    }
+}
+
 #[cfg(test)]
-mod tests {
+pub(crate) mod test_util {
+    #![allow(clippy::panic)] // tests can panic
+
     use super::*;
+
+    #[track_caller]
+    pub fn source_str(s: &str) -> SourceStr {
+        SourceStr::new(s.to_string())
+    }
+
+    pub fn create_test_source(path: &str) -> Source {
+        Source {
+            host: "test".to_string(),
+            user_name: "user".to_string(),
+            path: path.to_string(),
+        }
+    }
+
+    pub fn single_map(snapshots: Vec<Snapshot>) -> (SourceMap<Vec<Snapshot>>, SourceStr) {
+        let source = Source {
+            host: "host".to_string(),
+            user_name: "user_name".to_string(),
+            path: "/path".to_string(),
+        }
+        .render()
+        .expect("valid source");
+
+        let mut map = SourceMap::new();
+        map.entry(source.clone()).insert_entry(snapshots);
+        (map, source)
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use crate::{
+        RootEntry, Snapshot, Stats, Summary, get_retention_counts, parse_snapshots,
+        test_util::{create_test_source, single_map, source_str},
+    };
 
     fn create_test_snapshot(id: &str, total_size: u64, retention_reasons: &[&str]) -> Snapshot {
         Snapshot {
             id: id.to_string(),
-            source: Source {
-                host: "test".to_string(),
-                user_name: "user".to_string(),
-                path: "/test".to_string(),
-            },
+            source: create_test_source("/test"),
             description: "".to_string(),
             start_time: "2025-08-14T00:00:00Z".to_string(),
             end_time: "2025-08-14T00:01:00Z".to_string(),
@@ -194,7 +446,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_single_snapshot() {
+    fn parse_single_snapshot() {
         let json = r#"[
             {
                 "id": "test123",
@@ -233,7 +485,10 @@ mod tests {
             }
         ]"#;
 
-        let snapshots = parse_snapshots(json).expect("valid JSON");
+        let snapshots = parse_snapshots(json, |e| eyre::bail!(e))
+            .expect("valid JSON")
+            .into_expect_only(&source_str("user@test:/test"))
+            .expect("single source");
         assert_eq!(snapshots.len(), 1);
         assert_eq!(snapshots[0].id, "test123");
         assert_eq!(snapshots[0].stats.total_size, 1000);
@@ -241,16 +496,17 @@ mod tests {
     }
 
     #[test]
-    fn test_retention_counts_with_multiple_slots() {
-        // Test case addressing the TODO: verify retention slot counting works correctly
+    fn retention_counts_with_multiple_slots() {
         // This demonstrates that monthly-1, monthly-2, etc. should be counted separately
         // because they represent different retention slots, not multiple instances
-        let snapshots = vec![
+        let (map, source) = single_map(vec![
             create_test_snapshot("snap1", 1000, &["latest-1", "daily-1", "monthly-1"]),
             create_test_snapshot("snap2", 2000, &["latest-2", "daily-2", "monthly-2"]),
-        ];
+        ]);
 
-        let counts = get_retention_counts(&snapshots);
+        let counts = get_retention_counts(&map)
+            .into_expect_only(&source)
+            .expect("single");
 
         // Each retention slot should be counted separately because they represent
         // different positions in the retention timeline, not duplicate instances
@@ -272,35 +528,43 @@ mod tests {
     }
 
     #[test]
-    fn test_retention_counts() {
-        let snapshots = vec![
+    fn retention_counts() {
+        let (map, source) = single_map(vec![
             create_test_snapshot("1", 1000, &["latest-1", "daily-1"]),
             create_test_snapshot("2", 2000, &["daily-2"]),
-        ];
+        ]);
 
-        let counts = get_retention_counts(&snapshots);
+        let counts = get_retention_counts(&map)
+            .into_expect_only(&source)
+            .expect("single");
         assert_eq!(counts.get("latest-1"), Some(&1));
         assert_eq!(counts.get("daily-1"), Some(&1));
         assert_eq!(counts.get("daily-2"), Some(&1));
     }
 
     #[test]
-    #[expect(clippy::unreadable_literal)]
-    fn test_parse_sample_data() {
+    fn parse_sample_data() {
         let sample_data = include_str!("sample_kopia-snapshot-list.json");
-        let snapshots = parse_snapshots(sample_data).expect("valid snapshot JSON");
+        let source = source_str("kopia-system@milton:/persist-home");
 
-        assert_eq!(snapshots.len(), 17);
+        let map = parse_snapshots(sample_data, |e| eyre::bail!(e)).expect("valid snapshot JSON");
 
-        if let Some(latest) = snapshots.last() {
+        {
+            // inspect parsed snapshots (for single source)
+            let snapshots = map.clone().into_expect_only(&source).expect("single");
+
+            assert_eq!(snapshots.len(), 17);
+
+            let latest = snapshots.last().expect("nonempty");
             assert_eq!(latest.id, "c5be996d125abae92340f3a658443b24");
             assert_eq!(latest.start_time, "2025-08-14T00:00:04.04475167Z");
-            assert_eq!(latest.stats.total_size, 42154950324);
+            assert_eq!(latest.stats.total_size, 42_154_950_324);
             assert_eq!(latest.stats.error_count, 0);
             assert_eq!(latest.root_entry.summ.num_failed, 0);
         }
 
-        let retention_counts = get_retention_counts(&snapshots);
+        let retention_counts = get_retention_counts(&map);
+        let retention_counts = retention_counts.into_expect_only(&source).expect("single");
         assert_eq!(retention_counts.get("latest-1"), Some(&1));
         assert_eq!(retention_counts.get("daily-1"), Some(&1));
         assert_eq!(retention_counts.get("monthly-1"), Some(&1));
