@@ -2,24 +2,22 @@
 
 #![expect(clippy::unwrap_used)] // tests can unwrap
 
-use self::test_helpers::{ServerConfig, TestServer, assertions, get_test_log_path};
+use crate::FAKE_KOPIA_BIN;
+use crate::test_helpers::{ServerConfig, TestServer, assertions, get_test_log_path};
 use eyre::Result;
 use kopia_exporter::{KopiaSnapshots, SourceStr};
 use std::fs;
 use std::thread;
 use std::time::Duration;
 
-mod test_helpers;
-
 #[test]
 fn test_subprocess_with_fake_kopia() {
-    let fake_kopia_bin = env!("CARGO_BIN_EXE_fake-kopia");
     let timeout = std::time::Duration::from_secs(15);
 
     let source = SourceStr::new("kopia-system@milton:/persist-home".to_string());
 
     let snapshots =
-        KopiaSnapshots::new_from_command(fake_kopia_bin, timeout, |e| eyre::bail!(e)).unwrap();
+        KopiaSnapshots::new_from_command(FAKE_KOPIA_BIN, timeout, |e| eyre::bail!(e)).unwrap();
 
     let retention_counts = snapshots
         .get_retention_counts()
@@ -41,8 +39,7 @@ fn test_subprocess_with_fake_kopia() {
 
 #[test]
 fn test_web_server_integration() -> Result<()> {
-    let fake_kopia_bin = env!("CARGO_BIN_EXE_fake-kopia");
-    let config = ServerConfig::new(fake_kopia_bin)?;
+    let config = ServerConfig::new(FAKE_KOPIA_BIN)?;
     let server = TestServer::start(config)?;
 
     // Test the root endpoint
@@ -64,11 +61,9 @@ fn test_web_server_integration() -> Result<()> {
 
 #[test]
 fn test_caching_reduces_subprocess_calls() -> Result<()> {
-    let fake_kopia_bin = env!("CARGO_BIN_EXE_fake-kopia");
-
     // Test with caching enabled (1 second cache for quick testing)
     let (_tempdir, log_file_cached) = get_test_log_path("cache");
-    let cached_config = ServerConfig::new(fake_kopia_bin)?
+    let cached_config = ServerConfig::new(FAKE_KOPIA_BIN)?
         .with_args(["--cache-seconds", "1"])
         .with_env("FAKE_KOPIA_LOG", &log_file_cached);
     let cached_server = TestServer::start(cached_config)?;
@@ -86,7 +81,7 @@ fn test_caching_reduces_subprocess_calls() -> Result<()> {
 
     // Test with caching disabled
     let (_tempdir, log_file_no_cache) = get_test_log_path("no-cache");
-    let no_cache_config = ServerConfig::new(fake_kopia_bin)?
+    let no_cache_config = ServerConfig::new(FAKE_KOPIA_BIN)?
         .with_args(["--cache-seconds", "0"])
         .with_env("FAKE_KOPIA_LOG", &log_file_no_cache);
     let no_cache_server = TestServer::start(no_cache_config)?;
@@ -122,8 +117,7 @@ fn test_caching_reduces_subprocess_calls() -> Result<()> {
 
 #[test]
 fn test_basic_auth_integration() -> Result<()> {
-    let fake_kopia_bin = env!("CARGO_BIN_EXE_fake-kopia");
-    let config = ServerConfig::new(fake_kopia_bin)?.with_args([
+    let config = ServerConfig::new(FAKE_KOPIA_BIN)?.with_args([
         "--auth-username",
         "testuser",
         "--auth-password",
@@ -152,15 +146,13 @@ fn test_basic_auth_integration() -> Result<()> {
 fn test_basic_auth_credentials_file_integration() -> Result<()> {
     use std::io::Write;
 
-    let fake_kopia_bin = env!("CARGO_BIN_EXE_fake-kopia");
-
     // Create temporary credentials file
     let mut temp_file = tempfile::NamedTempFile::new()?;
     writeln!(temp_file, "fileuser:filepass")?;
     let temp_path = temp_file.path().to_string_lossy().to_string();
 
     let config =
-        ServerConfig::new(fake_kopia_bin)?.with_args(["--auth-credentials-file", &temp_path]);
+        ServerConfig::new(FAKE_KOPIA_BIN)?.with_args(["--auth-credentials-file", &temp_path]);
     let server = TestServer::start(config)?;
 
     // Test unauthenticated request - should get 401
@@ -186,13 +178,11 @@ fn run_timeout_test(
     expected_log_content: &str,
     test_suffix: &str,
 ) -> Result<()> {
-    let fake_kopia_bin = env!("CARGO_BIN_EXE_fake-kopia");
-
     // Setup: log file to verify sleep parameter was passed correctly
     let (_tempdir, log_file) = get_test_log_path(test_suffix);
 
     // Configure server with specified sleep and 0.5 second timeout
-    let config = ServerConfig::new(fake_kopia_bin)?
+    let config = ServerConfig::new(FAKE_KOPIA_BIN)?
         .with_env("FAKE_KOPIA_SLEEP_FOR_SECS", sleep_value)
         .with_env("FAKE_KOPIA_LOG", &log_file)
         .with_args(["--timeout", "0.5"]);
