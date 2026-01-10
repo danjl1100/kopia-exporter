@@ -132,7 +132,7 @@ fn send_unauthorized_response(request: tiny_http::Request) {
     let _ = request.respond(response);
 }
 
-#[allow(clippy::needless_pass_by_value)] // Server is consumed by incoming_requests()
+#[expect(clippy::needless_pass_by_value)] // Server is consumed by incoming_requests()
 fn serve_requests(
     server: Server,
     kopia_bin: &str,
@@ -279,7 +279,7 @@ fn main() -> eyre::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used)] // tests can unwrap
+    #![expect(clippy::unwrap_used)] // tests can unwrap
 
     use super::*;
     use std::net::TcpListener;

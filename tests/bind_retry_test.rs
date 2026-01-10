@@ -1,7 +1,7 @@
 //! Integration tests for bind retry functionality.
 
-#![allow(clippy::unwrap_used)] // tests can unwrap
-#![allow(clippy::panic)] // tests can panic
+#![expect(clippy::unwrap_used)] // tests can unwrap
+#![expect(clippy::panic)] // tests can panic
 
 use std::net::TcpListener;
 use std::process::{Command, Stdio};

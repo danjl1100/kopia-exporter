@@ -1,7 +1,6 @@
 //! Integration tests for kopia-exporter functionality.
 
-#![allow(clippy::unwrap_used)] // tests can unwrap
-#![allow(clippy::panic)] // tests can panic
+#![expect(clippy::unwrap_used)] // tests can unwrap
 
 use self::test_helpers::{ServerConfig, TestServer, assertions, get_test_log_path};
 use eyre::Result;
