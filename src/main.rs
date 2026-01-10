@@ -5,7 +5,7 @@
 
 use base64::prelude::*;
 use clap::Parser;
-use kopia_exporter::{Snapshot, SourceMap, get_snapshots_from_command, metrics};
+use kopia_exporter::KopiaSnapshots;
 use std::time::{Duration, Instant};
 use tiny_http::{Header, Method, Response, Server};
 
@@ -108,13 +108,13 @@ impl BasicAuthConfig {
 
 #[derive(Debug, Clone)]
 struct TimedSnapshots {
-    snapshots_map: SourceMap<Vec<Snapshot>>,
+    snapshots: KopiaSnapshots,
     created_at: Instant,
 }
 impl TimedSnapshots {
-    fn now(snapshots_map: SourceMap<Vec<Snapshot>>) -> Self {
+    fn now(snapshots: KopiaSnapshots) -> Self {
         Self {
-            snapshots_map,
+            snapshots,
             created_at: Instant::now(),
         }
     }
@@ -162,7 +162,7 @@ fn serve_requests(
                 // 2. Get snapshots (from cache or fresh fetch)
                 let current = cache.take().map_or_else(
                     || {
-                        get_snapshots_from_command(
+                        KopiaSnapshots::new_from_command(
                             kopia_bin,
                             kopia_timeout,
                             |e: kopia_exporter::kopia::SourceStrError| {
@@ -178,9 +178,9 @@ fn serve_requests(
 
                 // 3. Serve the result
                 match &current {
-                    Ok(TimedSnapshots { snapshots_map, .. }) => {
+                    Ok(TimedSnapshots { snapshots, .. }) => {
                         let now = jiff::Timestamp::now();
-                        let metrics_output = metrics::generate_all_metrics(snapshots_map, now);
+                        let metrics_output = snapshots.generate_all_metrics(now);
                         let header = Header::from_bytes(
                             &b"Content-Type"[..],
                             &b"text/plain; charset=utf-8"[..],

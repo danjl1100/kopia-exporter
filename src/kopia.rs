@@ -1,12 +1,9 @@
-use eyre::{Result, eyre};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::process::{Command, Stdio};
-use std::thread;
-use std::time::{Duration, Instant};
 
 pub use self::source_map::SourceMap;
 pub use self::source_str::{Error as SourceStrError, SourceStr};
+use crate::KopiaSnapshots;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -110,110 +107,21 @@ impl From<SnapshotJson> for Snapshot {
     }
 }
 
-/// Parses JSON content into a vector of snapshots.
-///
-/// # Errors
-///
-/// Returns an error if the JSON content cannot be parsed as snapshot data, or
-/// `invalid_source_fn` returns an error
-pub(crate) fn parse_snapshots(
-    json_content: &str,
-    invalid_source_fn: impl Fn(source_str::Error) -> eyre::Result<()>,
-) -> Result<SourceMap<Vec<Snapshot>>> {
-    let snapshots: Vec<SnapshotJson> = serde_json::from_str(json_content)?;
-
-    // organize by [`SourceStr`]
-    let mut map = SourceMap::new();
-    for snapshot in snapshots {
-        let source_str = match snapshot.source.render() {
-            Ok(s) => s,
-            Err(e) => {
-                invalid_source_fn(e)?;
-                continue;
-            }
-        };
-        let list: &mut Vec<Snapshot> = map.entry(source_str).or_default();
-        list.push(snapshot.into());
-    }
-    Ok(map)
-}
-
-#[must_use]
-pub fn get_retention_counts(
-    snapshots_map: &SourceMap<Vec<Snapshot>>,
-) -> SourceMap<BTreeMap<String, u32>> {
-    snapshots_map
-        .iter()
-        .map(|(source, snapshots)| {
-            let mut reason_counts = BTreeMap::<String, u32>::new();
-            for snapshot in snapshots {
-                for reason in &snapshot.retention_reason {
-                    *reason_counts.entry(reason.clone()).or_insert(0) += 1;
+impl KopiaSnapshots {
+    #[must_use]
+    pub fn get_retention_counts(&self) -> SourceMap<BTreeMap<String, u32>> {
+        self.snapshots_map
+            .iter()
+            .map(|(source, snapshots)| {
+                let mut reason_counts = BTreeMap::<String, u32>::new();
+                for snapshot in snapshots {
+                    for reason in &snapshot.retention_reason {
+                        *reason_counts.entry(reason.clone()).or_insert(0) += 1;
+                    }
                 }
-            }
-            (source.clone(), reason_counts)
-        })
-        .collect()
-}
-
-/// Executes kopia command to retrieve snapshots and parses the output.
-///
-/// # Errors
-///
-/// Returns an error if:
-/// - The kopia command fails to execute
-/// - The command returns a non-zero exit code
-/// - The command execution exceeds the specified timeout
-/// - The output cannot be parsed as UTF-8
-/// - The JSON output cannot be parsed as snapshot data
-/// - `invalid_source_fn` returns an error
-pub fn get_snapshots_from_command(
-    kopia_bin: &str,
-    timeout: Duration,
-    invalid_source_fn: impl Fn(source_str::Error) -> eyre::Result<()>,
-) -> Result<SourceMap<Vec<Snapshot>>> {
-    let mut child = Command::new(kopia_bin)
-        .args(["snapshot", "list", "--json"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-
-    let start = Instant::now();
-    let poll_interval = Duration::from_millis(50);
-
-    // Poll the child process until it completes or timeout is reached
-    loop {
-        if let Some(status) = child.try_wait()? {
-            // Process completed
-            let output = child.wait_with_output()?;
-
-            if !status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(eyre!(
-                    "kopia command failed with exit code: {}\nstdout: {}\nstderr: {}",
-                    status.code().unwrap_or(-1),
-                    stdout,
-                    stderr
-                ));
-            }
-
-            let stdout = String::from_utf8(output.stdout)?;
-            let snapshots_map = parse_snapshots(&stdout, invalid_source_fn)?;
-            return Ok(snapshots_map);
-        }
-        // Process still running, check timeout
-        if start.elapsed() >= timeout {
-            // Timeout exceeded, kill the process
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(eyre!(
-                "kopia command timeout after {} seconds",
-                timeout.as_secs_f64()
-            ));
-        }
-        // Sleep briefly before checking again
-        thread::sleep(poll_interval);
+                (source.clone(), reason_counts)
+            })
+            .collect()
     }
 }
 
@@ -423,7 +331,7 @@ pub(crate) mod test_util {
         }
     }
 
-    pub fn single_map(snapshots: Vec<Snapshot>) -> (SourceMap<Vec<Snapshot>>, SourceStr) {
+    pub fn single_map(snapshots: Vec<Snapshot>) -> (KopiaSnapshots, SourceStr) {
         let source = Source {
             host: "host".to_string(),
             user_name: "user_name".to_string(),
@@ -432,9 +340,9 @@ pub(crate) mod test_util {
         .render()
         .expect("valid source");
 
-        let mut map = SourceMap::new();
-        map.entry(source.clone()).insert_entry(snapshots);
-        (map, source)
+        let mut snapshots_map = SourceMap::new();
+        snapshots_map.entry(source.clone()).insert_entry(snapshots);
+        (KopiaSnapshots { snapshots_map }, source)
     }
 
     pub fn create_test_snapshot(id: &str, total_size: u64, retention_reasons: &[&str]) -> Snapshot {
@@ -486,7 +394,7 @@ pub(crate) mod test_util {
 #[cfg(test)]
 pub mod tests {
     use crate::{
-        get_retention_counts, parse_snapshots,
+        KopiaSnapshots,
         test_util::{create_test_snapshot, single_map, source_str},
     };
 
@@ -530,8 +438,9 @@ pub mod tests {
             }
         ]"#;
 
-        let snapshots = parse_snapshots(json, |e| eyre::bail!(e))
+        let snapshots = KopiaSnapshots::new_parse_json(json, |e| eyre::bail!(e))
             .expect("valid JSON")
+            .into_inner_map()
             .into_expect_only(&source_str("user@test:/test"))
             .expect("single source");
         assert_eq!(snapshots.len(), 1);
@@ -549,7 +458,8 @@ pub mod tests {
             create_test_snapshot("snap2", 2000, &["latest-2", "daily-2", "monthly-2"]),
         ]);
 
-        let counts = get_retention_counts(&map)
+        let counts = map
+            .get_retention_counts()
             .into_expect_only(&source)
             .expect("single");
 
@@ -579,7 +489,8 @@ pub mod tests {
             create_test_snapshot("2", 2000, &["daily-2"]),
         ]);
 
-        let counts = get_retention_counts(&map)
+        let counts = map
+            .get_retention_counts()
             .into_expect_only(&source)
             .expect("single");
         assert_eq!(counts.get("latest-1"), Some(&1));
@@ -592,11 +503,16 @@ pub mod tests {
         let sample_data = include_str!("sample_kopia-snapshot-list.json");
         let source = source_str("kopia-system@milton:/persist-home");
 
-        let map = parse_snapshots(sample_data, |e| eyre::bail!(e)).expect("valid snapshot JSON");
+        let map = KopiaSnapshots::new_parse_json(sample_data, |e| eyre::bail!(e))
+            .expect("valid snapshot JSON");
 
         {
             // inspect parsed snapshots (for single source)
-            let snapshots = map.clone().into_expect_only(&source).expect("single");
+            let snapshots = map
+                .clone()
+                .snapshots_map
+                .into_expect_only(&source)
+                .expect("single");
 
             assert_eq!(snapshots.len(), 17);
 
@@ -608,7 +524,7 @@ pub mod tests {
             assert_eq!(latest.root_entry.summ.num_failed, 0);
         }
 
-        let retention_counts = get_retention_counts(&map);
+        let retention_counts = map.get_retention_counts();
         let retention_counts = retention_counts.into_expect_only(&source).expect("single");
         assert_eq!(retention_counts.get("latest-1"), Some(&1));
         assert_eq!(retention_counts.get("daily-1"), Some(&1));

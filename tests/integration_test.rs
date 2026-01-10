@@ -5,8 +5,7 @@
 
 use self::test_helpers::{ServerConfig, TestServer, assertions, get_test_log_path};
 use eyre::Result;
-use kopia_exporter::SourceStr;
-use kopia_exporter::kopia;
+use kopia_exporter::{KopiaSnapshots, SourceStr};
 use std::fs;
 use std::thread;
 use std::time::Duration;
@@ -21,14 +20,18 @@ fn test_subprocess_with_fake_kopia() {
     let source = SourceStr::new("kopia-system@milton:/persist-home".to_string());
 
     let snapshots =
-        kopia::get_snapshots_from_command(fake_kopia_bin, timeout, |e| eyre::bail!(e)).unwrap();
+        KopiaSnapshots::new_from_command(fake_kopia_bin, timeout, |e| eyre::bail!(e)).unwrap();
 
-    let retention_counts = kopia::get_retention_counts(&snapshots)
+    let retention_counts = snapshots
+        .get_retention_counts()
         .into_expect_only(&source)
         .expect("single");
     assert_eq!(retention_counts.get("latest-1"), Some(&1));
 
-    let snapshots = snapshots.into_expect_only(&source).expect("single");
+    let snapshots = snapshots
+        .into_inner_map()
+        .into_expect_only(&source)
+        .expect("single");
     assert_eq!(snapshots.len(), 17);
 
     if let Some(latest) = snapshots.last() {

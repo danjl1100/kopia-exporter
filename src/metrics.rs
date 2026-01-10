@@ -1,7 +1,4 @@
-use crate::{
-    SourceMap,
-    kopia::{Snapshot, get_retention_counts},
-};
+use crate::{KopiaSnapshots, SourceMap, kopia::Snapshot};
 use std::{
     collections::BTreeMap,
     fmt::{self, Display},
@@ -45,40 +42,43 @@ impl Display for MetricLabel {
     }
 }
 
-/// Generates Prometheus metrics for snapshots by retention reason.
-///
-/// Returns a string containing Prometheus-formatted metrics showing the count
-/// of snapshots for each retention reason (e.g., "latest-1", "daily-7", etc.).
-#[must_use]
-fn snapshots_by_retention(snapshots_map: &SourceMap<Vec<Snapshot>>) -> impl Display {
-    const NAME: &str = "kopia_snapshots_by_retention";
-    const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Number of snapshots by retention reason");
+impl KopiaSnapshots {
+    /// Generates Prometheus metrics for snapshots by retention reason.
+    ///
+    /// Returns a string containing Prometheus-formatted metrics showing the count
+    /// of snapshots for each retention reason (e.g., "latest-1", "daily-7", etc.).
+    #[must_use]
+    fn snapshots_by_retention(&self) -> impl Display {
+        const NAME: &str = "kopia_snapshots_by_retention";
+        const LABEL: MetricLabel =
+            MetricLabel::gauge(NAME, "Number of snapshots by retention reason");
 
-    struct Output {
-        retention_counts: SourceMap<BTreeMap<String, u32>>,
-    }
-    impl Display for Output {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            let Self { retention_counts } = self;
-            writeln!(f, "{LABEL}")?;
-            for (source, reason_counts) in retention_counts {
-                for (reason, count) in reason_counts {
-                    writeln!(
-                        f,
-                        "{NAME}{{source={source:?},retention_reason={reason:?}}} {count}"
-                    )?;
-                }
-            }
-            Ok(())
+        struct Output {
+            retention_counts: SourceMap<BTreeMap<String, u32>>,
         }
-    }
+        impl Display for Output {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let Self { retention_counts } = self;
+                writeln!(f, "{LABEL}")?;
+                for (source, reason_counts) in retention_counts {
+                    for (reason, count) in reason_counts {
+                        writeln!(
+                            f,
+                            "{NAME}{{source={source:?},retention_reason={reason:?}}} {count}"
+                        )?;
+                    }
+                }
+                Ok(())
+            }
+        }
 
-    let retention_counts = get_retention_counts(snapshots_map);
-    Output { retention_counts }
+        let retention_counts = self.get_retention_counts();
+        Output { retention_counts }
+    }
 }
 
 mod last_snapshots {
-    use crate::{Snapshot, SourceMap, SourceStr, metrics::MetricLabel};
+    use crate::{KopiaSnapshots, Snapshot, SourceMap, SourceStr, metrics::MetricLabel};
     use std::fmt::{self, Display};
 
     #[derive(Clone, Copy)]
@@ -110,12 +110,12 @@ mod last_snapshots {
         T: Display,
     {
         pub fn new(
-            snapshots_map: &'a SourceMap<Vec<Snapshot>>,
+            ks: &'a KopiaSnapshots,
             name: &'static str,
             label: MetricLabel,
             stat_fn: F,
         ) -> Option<Self> {
-            let last_snapshots = LastSnapshots::new(snapshots_map)?;
+            let last_snapshots = LastSnapshots::new(&ks.snapshots_map)?;
             Some(Self {
                 last_snapshots,
                 name,
@@ -146,296 +146,311 @@ mod last_snapshots {
     }
 }
 
-/// Generates Prometheus metrics for the latest snapshot size.
-///
-/// Returns a string containing Prometheus-formatted metrics showing the total
-/// size in bytes of the most recent snapshot. Only present if snapshots list is not empty.
-#[must_use]
-fn snapshot_total_size_bytes(snapshots_map: &SourceMap<Vec<Snapshot>>) -> Option<impl Display> {
-    const NAME: &str = "kopia_snapshot_total_size_bytes";
-    const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Total size of latest snapshot in bytes");
+impl KopiaSnapshots {
+    /// Generates Prometheus metrics for the latest snapshot size.
+    ///
+    /// Returns a string containing Prometheus-formatted metrics showing the total
+    /// size in bytes of the most recent snapshot. Only present if snapshots list is not empty.
+    #[must_use]
+    fn snapshot_total_size_bytes(&self) -> Option<impl Display> {
+        const NAME: &str = "kopia_snapshot_total_size_bytes";
+        const LABEL: MetricLabel =
+            MetricLabel::gauge(NAME, "Total size of latest snapshot in bytes");
 
-    MetricLastSnapshots::new(snapshots_map, NAME, LABEL, |v| v.stats.total_size)
+        MetricLastSnapshots::new(self, NAME, LABEL, |v| v.stats.total_size)
+    }
 }
 
-/// Generates Prometheus metrics for the age of the latest snapshot.
-///
-/// Returns a string containing Prometheus-formatted metrics showing the age
-/// in seconds of the most recent snapshot from its end time. Only present if snapshots list is not empty.
-#[must_use]
-fn snapshot_age_seconds(
-    snapshots_map: &SourceMap<Vec<Snapshot>>,
-    now: jiff::Timestamp,
-) -> Option<impl Display> {
-    const NAME: &str = "kopia_snapshot_age_seconds";
-    const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Age of newest snapshot in seconds");
+impl KopiaSnapshots {
+    /// Generates Prometheus metrics for the age of the latest snapshot.
+    ///
+    /// Returns a string containing Prometheus-formatted metrics showing the age
+    /// in seconds of the most recent snapshot from its end time. Only present if snapshots list is not empty.
+    #[must_use]
+    fn snapshot_age_seconds(&self, now: jiff::Timestamp) -> Option<impl Display> {
+        const NAME: &str = "kopia_snapshot_age_seconds";
+        const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Age of newest snapshot in seconds");
 
-    struct Output {
-        age_seconds_map: SourceMap<i64>,
-    }
-    impl Display for Output {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            let Self { age_seconds_map } = self;
-            writeln!(f, "{LABEL}")?;
-            for (source, age_seconds) in age_seconds_map {
-                writeln!(f, "{NAME}{{source={source:?}}} {age_seconds}")?;
-            }
-
-            Ok(())
+        struct Output {
+            age_seconds_map: SourceMap<i64>,
         }
-    }
-
-    let age_seconds_map: SourceMap<_> = snapshots_map
-        .iter()
-        .filter_map(|(source, snapshots)| {
-            let last = snapshots.last()?;
-            let age_seconds = {
-                let age = now - last.end_time?;
-                let age_seconds = age
-                    .total(jiff::Unit::Second)
-                    .expect("relative reference time given");
-                #[allow(clippy::cast_possible_truncation)]
-                {
-                    age_seconds.round() as i64
+        impl Display for Output {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let Self { age_seconds_map } = self;
+                writeln!(f, "{LABEL}")?;
+                for (source, age_seconds) in age_seconds_map {
+                    writeln!(f, "{NAME}{{source={source:?}}} {age_seconds}")?;
                 }
-            };
-            Some((source.clone(), age_seconds))
-        })
-        .collect();
-    if age_seconds_map.is_empty() {
-        None
-    } else {
-        Some(Output { age_seconds_map })
-    }
-}
 
-/// Generates Prometheus metrics for timestamp parsing errors.
-///
-/// Returns a string containing Prometheus-formatted metrics showing the count
-/// of snapshots with unparseable timestamps. Only present if there are parsing errors.
-#[must_use]
-fn snapshot_timestamp_parse_errors_total(
-    snapshots_map: &SourceMap<Vec<Snapshot>>,
-) -> Option<impl Display> {
-    const NAME: &str = "kopia_snapshot_timestamp_parse_errors_total";
-    const LABEL: MetricLabel =
-        MetricLabel::gauge(NAME, "Number of snapshots with unparseable timestamps");
-
-    struct ErrorCounts(SourceMap<u32>);
-    impl Display for ErrorCounts {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            let Self(error_counts) = self;
-            writeln!(f, "{LABEL}")?;
-            for (source, error_count) in error_counts {
-                writeln!(f, "{NAME}{{source={source:?}}} {error_count}")?;
+                Ok(())
             }
-            Ok(())
+        }
+
+        let age_seconds_map: SourceMap<_> = self
+            .snapshots_map
+            .iter()
+            .filter_map(|(source, snapshots)| {
+                let last = snapshots.last()?;
+                let age_seconds = {
+                    let age = now - last.end_time?;
+                    let age_seconds = age
+                        .total(jiff::Unit::Second)
+                        .expect("relative reference time given");
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        age_seconds.round() as i64
+                    }
+                };
+                Some((source.clone(), age_seconds))
+            })
+            .collect();
+        if age_seconds_map.is_empty() {
+            None
+        } else {
+            Some(Output { age_seconds_map })
         }
     }
 
-    let error_counts: SourceMap<u32> = snapshots_map
-        .iter()
-        .filter_map(|(source, snapshots)| {
-            let error_count = snapshots
-                .iter()
-                .map(|snapshot| if snapshot.end_time.is_none() { 1 } else { 0 })
-                .sum::<u32>();
+    /// Generates Prometheus metrics for timestamp parsing errors.
+    ///
+    /// Returns a string containing Prometheus-formatted metrics showing the count
+    /// of snapshots with unparseable timestamps. Only present if there are parsing errors.
+    #[must_use]
+    fn snapshot_timestamp_parse_errors_total(&self) -> Option<impl Display> {
+        const NAME: &str = "kopia_snapshot_timestamp_parse_errors_total";
+        const LABEL: MetricLabel =
+            MetricLabel::gauge(NAME, "Number of snapshots with unparseable timestamps");
 
-            (error_count > 0).then(|| (source.clone(), error_count))
-        })
-        .collect();
-
-    error_counts.map_nonempty(ErrorCounts)
-}
-
-/// Generates Prometheus metrics for the last successful snapshot timestamp.
-///
-/// Returns a string containing Prometheus-formatted metrics showing the Unix timestamp
-/// of the most recent snapshot. Only present if snapshots list is not empty.
-#[must_use]
-fn snapshot_last_success_timestamp(
-    snapshots_map: &SourceMap<Vec<Snapshot>>,
-) -> Option<impl Display> {
-    const NAME: &str = "kopia_snapshot_last_success_timestamp";
-    const LABEL: MetricLabel =
-        MetricLabel::gauge(NAME, "Unix timestamp of last successful snapshot");
-
-    struct Timestamps(SourceMap<i64>);
-    impl Display for Timestamps {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            let Self(timestamps) = self;
-            writeln!(f, "{LABEL}")?;
-            for (source, timestamp) in timestamps {
-                writeln!(f, "{NAME}{{source={source:?}}} {timestamp}")?;
-            }
-            Ok(())
-        }
-    }
-
-    let timestamps: SourceMap<i64> = snapshots_map
-        .iter()
-        .filter_map(|(source, snapshots)| {
-            let last = snapshots.last()?;
-            let end_time = last.end_time?;
-            Some((source.clone(), end_time.as_second()))
-        })
-        .collect();
-
-    timestamps.map_nonempty(Timestamps)
-}
-
-/// Generates Prometheus metrics for errors in the latest snapshot.
-///
-/// Returns a string containing Prometheus-formatted metrics showing the total
-/// number of errors in the most recent snapshot. Only present if snapshots list is not empty.
-#[must_use]
-fn snapshot_errors_total(snapshots_map: &SourceMap<Vec<Snapshot>>) -> Option<impl Display> {
-    const NAME: &str = "kopia_snapshot_errors_total";
-    const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Total errors in latest snapshot");
-
-    MetricLastSnapshots::new(snapshots_map, NAME, LABEL, |v| v.stats.error_count)
-}
-
-/// Generates Prometheus metrics for ignored errors in the latest snapshot.
-///
-/// Returns a string containing Prometheus-formatted metrics showing the total
-/// number of ignored errors in the most recent snapshot. Only present if snapshots list is not empty.
-#[must_use]
-fn snapshot_ignored_errors_total(snapshots_map: &SourceMap<Vec<Snapshot>>) -> Option<impl Display> {
-    const NAME: &str = "kopia_snapshot_ignored_errors_total";
-    const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Ignored errors in latest snapshot");
-
-    MetricLastSnapshots::new(snapshots_map, NAME, LABEL, |v| v.stats.ignored_error_count)
-}
-
-/// Generates Prometheus metrics for failed files in the latest snapshot.
-///
-/// Returns a string containing Prometheus-formatted metrics showing the number
-/// of failed files in the most recent snapshot. Only present if snapshots list is not empty.
-#[must_use]
-fn snapshot_failed_files_total(snapshots_map: &SourceMap<Vec<Snapshot>>) -> Option<impl Display> {
-    const NAME: &str = "kopia_snapshot_failed_files_total";
-    const LABEL: MetricLabel =
-        MetricLabel::gauge(NAME, "Number of failed files in latest snapshot");
-
-    MetricLastSnapshots::new(snapshots_map, NAME, LABEL, |v| v.root_entry.summ.num_failed)
-}
-
-/// Generates Prometheus metrics for the size change from the previous snapshot.
-///
-/// Returns a string containing Prometheus-formatted metrics showing the change
-/// in bytes from the previous snapshot. Only present if snapshots list has more than one snapshot.
-#[must_use]
-fn snapshot_size_change_bytes(snapshots_map: &SourceMap<Vec<Snapshot>>) -> Option<impl Display> {
-    const NAME: &str = "kopia_snapshot_size_change_bytes";
-    const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Change in size from previous snapshot");
-
-    struct SizeChanges(SourceMap<i128>);
-    impl Display for SizeChanges {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            let Self(size_changes) = self;
-            writeln!(f, "{LABEL}")?;
-            for (source, size_change) in size_changes {
-                writeln!(f, "{NAME}{{source={source:?}}} {size_change}")?;
-            }
-            Ok(())
-        }
-    }
-
-    let size_changes: SourceMap<i128> = snapshots_map
-        .iter()
-        .filter_map(|(source, snapshots)| {
-            let mut iter = snapshots.iter().rev();
-            let latest = iter.next()?;
-            let previous = iter.next()?;
-
-            let latest_size: u64 = latest.stats.total_size;
-            let previous_size: u64 = previous.stats.total_size;
-
-            let size_change = u128::from(latest_size)
-                .checked_signed_diff(u128::from(previous_size))
-                .expect("u64 diff fits in i128");
-            Some((source.clone(), size_change))
-        })
-        .collect();
-    size_changes.map_nonempty(SizeChanges)
-}
-
-/// Generates Prometheus metrics for the total number of snapshots.
-///
-/// Returns a string containing Prometheus-formatted metrics showing the total
-/// count of all snapshots in the repository.
-#[must_use]
-fn snapshots_total(snapshots_map: &SourceMap<Vec<Snapshot>>) -> impl Display {
-    const NAME: &str = "kopia_snapshots_total";
-    const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Total number of snapshots");
-
-    struct Output<'a> {
-        snapshots_map: &'a SourceMap<Vec<Snapshot>>,
-    }
-    impl Display for Output<'_> {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            let Self { snapshots_map } = *self;
-            writeln!(f, "{LABEL}")?;
-            for (source, snapshots) in snapshots_map {
-                let count = snapshots.len();
-                writeln!(f, "{NAME}{{source={source:?}}} {count}")?;
-            }
-            Ok(())
-        }
-    }
-
-    Output { snapshots_map }
-}
-
-/// Generates all Prometheus metrics for the `/metrics` endpoint.
-///
-/// Combines all available metrics into a single response suitable for
-/// Prometheus scraping.
-#[must_use]
-pub fn generate_all_metrics(
-    snapshots_map: &SourceMap<Vec<Snapshot>>,
-    now: jiff::Timestamp,
-) -> String {
-    struct Accumulator {
-        output: String,
-        first: Option<()>,
-    }
-    impl Accumulator {
-        fn new() -> Self {
-            Self {
-                output: String::new(),
-                first: Some(()),
-            }
-        }
-        fn push(mut self, metric: Option<impl Display>) -> Self {
-            use std::fmt::Write as _;
-            if let Some(m) = metric {
-                let Self { first, output } = &mut self;
-                if first.take().is_none() {
-                    output.push('\n');
+        struct ErrorCounts(SourceMap<u32>);
+        impl Display for ErrorCounts {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let Self(error_counts) = self;
+                writeln!(f, "{LABEL}")?;
+                for (source, error_count) in error_counts {
+                    writeln!(f, "{NAME}{{source={source:?}}} {error_count}")?;
                 }
-                write!(output, "{m}").expect("infallible");
+                Ok(())
             }
-            self
         }
-        fn finish(self) -> String {
-            self.output
-        }
-    }
 
-    Accumulator::new()
-        .push(Some(snapshots_by_retention(snapshots_map)))
-        .push(snapshot_total_size_bytes(snapshots_map))
-        .push(snapshot_age_seconds(snapshots_map, now))
-        .push(snapshot_timestamp_parse_errors_total(snapshots_map))
-        .push(snapshot_last_success_timestamp(snapshots_map))
-        .push(snapshot_errors_total(snapshots_map))
-        .push(snapshot_ignored_errors_total(snapshots_map))
-        .push(snapshot_failed_files_total(snapshots_map))
-        .push(snapshot_size_change_bytes(snapshots_map))
-        .push(Some(snapshots_total(snapshots_map)))
-        .finish()
+        let error_counts: SourceMap<u32> = self
+            .snapshots_map
+            .iter()
+            .filter_map(|(source, snapshots)| {
+                let error_count = snapshots
+                    .iter()
+                    .map(|snapshot| if snapshot.end_time.is_none() { 1 } else { 0 })
+                    .sum::<u32>();
+
+                (error_count > 0).then(|| (source.clone(), error_count))
+            })
+            .collect();
+
+        error_counts.map_nonempty(ErrorCounts)
+    }
+}
+
+impl KopiaSnapshots {
+    /// Generates Prometheus metrics for the last successful snapshot timestamp.
+    ///
+    /// Returns a string containing Prometheus-formatted metrics showing the Unix timestamp
+    /// of the most recent snapshot. Only present if snapshots list is not empty.
+    #[must_use]
+    fn snapshot_last_success_timestamp(&self) -> Option<impl Display> {
+        const NAME: &str = "kopia_snapshot_last_success_timestamp";
+        const LABEL: MetricLabel =
+            MetricLabel::gauge(NAME, "Unix timestamp of last successful snapshot");
+
+        struct Timestamps(SourceMap<i64>);
+        impl Display for Timestamps {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let Self(timestamps) = self;
+                writeln!(f, "{LABEL}")?;
+                for (source, timestamp) in timestamps {
+                    writeln!(f, "{NAME}{{source={source:?}}} {timestamp}")?;
+                }
+                Ok(())
+            }
+        }
+
+        let timestamps: SourceMap<i64> = self
+            .snapshots_map
+            .iter()
+            .filter_map(|(source, snapshots)| {
+                let last = snapshots.last()?;
+                let end_time = last.end_time?;
+                Some((source.clone(), end_time.as_second()))
+            })
+            .collect();
+
+        timestamps.map_nonempty(Timestamps)
+    }
+}
+
+impl KopiaSnapshots {
+    /// Generates Prometheus metrics for errors in the latest snapshot.
+    ///
+    /// Returns a string containing Prometheus-formatted metrics showing the total
+    /// number of errors in the most recent snapshot. Only present if snapshots list is not empty.
+    #[must_use]
+    fn snapshot_errors_total(&self) -> Option<impl Display> {
+        const NAME: &str = "kopia_snapshot_errors_total";
+        const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Total errors in latest snapshot");
+
+        MetricLastSnapshots::new(self, NAME, LABEL, |v| v.stats.error_count)
+    }
+}
+
+impl KopiaSnapshots {
+    /// Generates Prometheus metrics for ignored errors in the latest snapshot.
+    ///
+    /// Returns a string containing Prometheus-formatted metrics showing the total
+    /// number of ignored errors in the most recent snapshot. Only present if snapshots list is not empty.
+    #[must_use]
+    fn snapshot_ignored_errors_total(&self) -> Option<impl Display> {
+        const NAME: &str = "kopia_snapshot_ignored_errors_total";
+        const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Ignored errors in latest snapshot");
+
+        MetricLastSnapshots::new(self, NAME, LABEL, |v| v.stats.ignored_error_count)
+    }
+}
+
+impl KopiaSnapshots {
+    /// Generates Prometheus metrics for failed files in the latest snapshot.
+    ///
+    /// Returns a string containing Prometheus-formatted metrics showing the number
+    /// of failed files in the most recent snapshot. Only present if snapshots list is not empty.
+    #[must_use]
+    fn snapshot_failed_files_total(&self) -> Option<impl Display> {
+        const NAME: &str = "kopia_snapshot_failed_files_total";
+        const LABEL: MetricLabel =
+            MetricLabel::gauge(NAME, "Number of failed files in latest snapshot");
+
+        MetricLastSnapshots::new(self, NAME, LABEL, |v| v.root_entry.summ.num_failed)
+    }
+}
+
+impl KopiaSnapshots {
+    /// Generates Prometheus metrics for the size change from the previous snapshot.
+    ///
+    /// Returns a string containing Prometheus-formatted metrics showing the change
+    /// in bytes from the previous snapshot. Only present if snapshots list has more than one snapshot.
+    #[must_use]
+    fn snapshot_size_change_bytes(&self) -> Option<impl Display> {
+        const NAME: &str = "kopia_snapshot_size_change_bytes";
+        const LABEL: MetricLabel =
+            MetricLabel::gauge(NAME, "Change in size from previous snapshot");
+
+        struct SizeChanges(SourceMap<i128>);
+        impl Display for SizeChanges {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let Self(size_changes) = self;
+                writeln!(f, "{LABEL}")?;
+                for (source, size_change) in size_changes {
+                    writeln!(f, "{NAME}{{source={source:?}}} {size_change}")?;
+                }
+                Ok(())
+            }
+        }
+
+        let size_changes: SourceMap<i128> = self
+            .snapshots_map
+            .iter()
+            .filter_map(|(source, snapshots)| {
+                let mut iter = snapshots.iter().rev();
+                let latest = iter.next()?;
+                let previous = iter.next()?;
+
+                let latest_size: u64 = latest.stats.total_size;
+                let previous_size: u64 = previous.stats.total_size;
+
+                let size_change = u128::from(latest_size)
+                    .checked_signed_diff(u128::from(previous_size))
+                    .expect("u64 diff fits in i128");
+                Some((source.clone(), size_change))
+            })
+            .collect();
+        size_changes.map_nonempty(SizeChanges)
+    }
+}
+
+impl KopiaSnapshots {
+    /// Generates Prometheus metrics for the total number of snapshots.
+    ///
+    /// Returns a string containing Prometheus-formatted metrics showing the total
+    /// count of all snapshots in the repository.
+    #[must_use]
+    fn snapshots_total(&self) -> impl Display {
+        const NAME: &str = "kopia_snapshots_total";
+        const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Total number of snapshots");
+
+        struct Output<'a> {
+            snapshots_map: &'a SourceMap<Vec<Snapshot>>,
+        }
+        impl Display for Output<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let Self { snapshots_map } = *self;
+                writeln!(f, "{LABEL}")?;
+                for (source, snapshots) in snapshots_map {
+                    let count = snapshots.len();
+                    writeln!(f, "{NAME}{{source={source:?}}} {count}")?;
+                }
+                Ok(())
+            }
+        }
+
+        let Self { snapshots_map } = self;
+        Output { snapshots_map }
+    }
+}
+
+impl KopiaSnapshots {
+    /// Generates all Prometheus metrics for the `/metrics` endpoint.
+    ///
+    /// Combines all available metrics into a single response suitable for
+    /// Prometheus scraping.
+    #[must_use]
+    pub fn generate_all_metrics(&self, now: jiff::Timestamp) -> String {
+        struct Accumulator {
+            output: String,
+            first: Option<()>,
+        }
+        impl Accumulator {
+            fn new() -> Self {
+                Self {
+                    output: String::new(),
+                    first: Some(()),
+                }
+            }
+            fn push(mut self, metric: Option<impl Display>) -> Self {
+                use std::fmt::Write as _;
+                if let Some(m) = metric {
+                    let Self { first, output } = &mut self;
+                    if first.take().is_none() {
+                        output.push('\n');
+                    }
+                    write!(output, "{m}").expect("infallible");
+                }
+                self
+            }
+            fn finish(self) -> String {
+                self.output
+            }
+        }
+
+        Accumulator::new()
+            .push(Some(self.snapshots_by_retention()))
+            .push(self.snapshot_total_size_bytes())
+            .push(self.snapshot_age_seconds(now))
+            .push(self.snapshot_timestamp_parse_errors_total())
+            .push(self.snapshot_last_success_timestamp())
+            .push(self.snapshot_errors_total())
+            .push(self.snapshot_ignored_errors_total())
+            .push(self.snapshot_failed_files_total())
+            .push(self.snapshot_size_change_bytes())
+            .push(Some(self.snapshots_total()))
+            .finish()
+    }
 }
 
 #[cfg(test)]
@@ -444,11 +459,7 @@ mod tests {
     #![allow(clippy::panic)] // tests can panic
 
     use crate::{
-        metrics::{
-            generate_all_metrics, snapshot_age_seconds, snapshot_errors_total,
-            snapshot_failed_files_total, snapshot_timestamp_parse_errors_total,
-            snapshot_total_size_bytes, snapshots_by_retention, snapshots_total,
-        },
+        KopiaSnapshots,
         test_util::{create_test_snapshot, create_test_snapshot_json, single_map},
     };
 
@@ -459,7 +470,7 @@ mod tests {
             create_test_snapshot("2", 2000, &["daily-2"]),
         ]);
 
-        let metrics = snapshots_by_retention(map).to_string();
+        let metrics = map.snapshots_by_retention().to_string();
 
         assert!(metrics.contains("# HELP kopia_snapshots_by_retention"));
         assert!(metrics.contains("# TYPE kopia_snapshots_by_retention gauge"));
@@ -475,7 +486,8 @@ mod tests {
             create_test_snapshot("2", 2000, &["latest-1"]),
         ]);
 
-        let metrics = snapshot_total_size_bytes(&map)
+        let metrics = map
+            .snapshot_total_size_bytes()
             .expect("nonempty")
             .to_string();
 
@@ -491,7 +503,7 @@ mod tests {
     #[test]
     fn test_latest_snapshot_size_metrics_empty() {
         let (map, _source) = single_map(vec![]);
-        let metrics = snapshot_total_size_bytes(&map);
+        let metrics = map.snapshot_total_size_bytes();
 
         assert!(metrics.is_none());
     }
@@ -509,9 +521,7 @@ mod tests {
 
             let (map, _source) = single_map(vec![snapshot]);
 
-            let metrics = snapshot_age_seconds(&map, now)
-                .expect("nonempty")
-                .to_string();
+            let metrics = map.snapshot_age_seconds(now).expect("nonempty").to_string();
 
             assert!(metrics.contains("# HELP kopia_snapshot_age_seconds"));
             assert!(metrics.contains("# TYPE kopia_snapshot_age_seconds gauge"));
@@ -537,7 +547,7 @@ mod tests {
     fn test_snapshot_age_metrics_empty() {
         let (map, _source) = single_map(vec![]);
         let now = jiff::Timestamp::now();
-        let metrics = snapshot_age_seconds(&map, now);
+        let metrics = map.snapshot_age_seconds(now);
 
         assert!(metrics.is_none());
     }
@@ -551,8 +561,9 @@ mod tests {
         let now = jiff::Timestamp::now();
 
         let (map, _source) = single_map(vec![snapshot]);
-        let age_metrics = snapshot_age_seconds(&map, now);
-        let time_error_metrics = snapshot_timestamp_parse_errors_total(&map)
+        let age_metrics = map.snapshot_age_seconds(now);
+        let time_error_metrics = map
+            .snapshot_timestamp_parse_errors_total()
             .expect("nonempty")
             .to_string();
 
@@ -568,7 +579,7 @@ mod tests {
         snapshot.stats.error_count = 5;
 
         let (map, _source) = single_map(vec![snapshot]);
-        let metrics = snapshot_errors_total(&map).expect("nonempty").to_string();
+        let metrics = map.snapshot_errors_total().expect("nonempty").to_string();
 
         assert!(metrics.contains("# HELP kopia_snapshot_errors_total"));
         assert!(metrics.contains("# TYPE kopia_snapshot_errors_total gauge"));
@@ -582,7 +593,7 @@ mod tests {
         let snapshot = create_test_snapshot("1", 1000, &["latest-1"]);
 
         let (map, _source) = single_map(vec![snapshot]);
-        let metrics = snapshot_errors_total(&map).expect("nonempty").to_string();
+        let metrics = map.snapshot_errors_total().expect("nonempty").to_string();
 
         assert!(
             metrics.contains(r#"kopia_snapshot_errors_total{source="user_name@host:/path"} 0"#)
@@ -593,7 +604,7 @@ mod tests {
     fn test_snapshot_errors_metrics_empty() {
         let snapshots = vec![];
         let (map, _source) = single_map(snapshots);
-        let metrics = snapshot_errors_total(&map);
+        let metrics = map.snapshot_errors_total();
 
         assert!(metrics.is_none());
     }
@@ -604,7 +615,8 @@ mod tests {
         snapshot.root_entry.summ.num_failed = 3;
 
         let (map, _source) = single_map(vec![snapshot]);
-        let metrics = snapshot_failed_files_total(&map)
+        let metrics = map
+            .snapshot_failed_files_total()
             .expect("nonempty")
             .to_string();
 
@@ -621,7 +633,8 @@ mod tests {
         let snapshot = create_test_snapshot("1", 1000, &["latest-1"]);
 
         let (map, _source) = single_map(vec![snapshot]);
-        let metrics = snapshot_failed_files_total(&map)
+        let metrics = map
+            .snapshot_failed_files_total()
             .expect("nonempty")
             .to_string();
 
@@ -635,7 +648,7 @@ mod tests {
     fn test_snapshot_failed_files_metrics_empty() {
         let snapshots = vec![];
         let (map, _source) = &single_map(snapshots);
-        let metrics = snapshot_failed_files_total(map);
+        let metrics = map.snapshot_failed_files_total();
 
         assert!(metrics.is_none());
     }
@@ -649,7 +662,7 @@ mod tests {
         ];
 
         let (map, _source) = single_map(snapshots);
-        let metrics = snapshots_total(&map).to_string();
+        let metrics = map.snapshots_total().to_string();
 
         assert!(metrics.contains("# HELP kopia_snapshots_total"));
         assert!(metrics.contains("# TYPE kopia_snapshots_total gauge"));
@@ -660,7 +673,7 @@ mod tests {
     fn test_snapshots_total_metrics_empty() {
         let snapshots = vec![];
         let (map, _source) = single_map(snapshots);
-        let metrics = snapshots_total(&map).to_string();
+        let metrics = map.snapshots_total().to_string();
 
         assert!(metrics.contains(r#"kopia_snapshots_total{source="user_name@host:/path"} 0"#));
     }
@@ -669,7 +682,7 @@ mod tests {
     fn test_snapshots_total_metrics_single() {
         let snapshots = vec![create_test_snapshot("1", 1000, &["latest-1"])];
         let (map, _source) = single_map(snapshots);
-        let metrics = snapshots_total(&map).to_string();
+        let metrics = map.snapshots_total().to_string();
 
         assert!(metrics.contains(r#"kopia_snapshots_total{source="user_name@host:/path"} 1"#));
     }
@@ -681,7 +694,7 @@ mod tests {
         let now = jiff::Timestamp::now();
 
         let (map, _source) = single_map(snapshots);
-        let metrics = generate_all_metrics(&map, now);
+        let metrics = map.generate_all_metrics(now);
 
         assert!(metrics.contains("kopia_snapshots_by_retention"));
         assert!(metrics.contains("kopia_snapshot_total_size_bytes"));
@@ -694,15 +707,15 @@ mod tests {
     #[test]
     fn full_snapshot() {
         let sample_data = include_str!("sample_kopia-snapshot-list.json");
-        let snapshots =
-            crate::parse_snapshots(sample_data, |e| eyre::bail!(e)).expect("valid snapshot JSON");
+        let snapshots = KopiaSnapshots::new_parse_json(sample_data, |e| eyre::bail!(e))
+            .expect("valid snapshot JSON");
 
         let now: jiff::Timestamp = "2025-08-17T20:58:04.972143344Z"
             .parse()
             .expect("valid timestamp");
 
         insta::assert_snapshot!(
-            generate_all_metrics(&snapshots, now),
+            snapshots.generate_all_metrics(now),
             @r#"
             # HELP kopia_snapshots_by_retention Number of snapshots by retention reason
             # TYPE kopia_snapshots_by_retention gauge
