@@ -13,6 +13,7 @@ mod last_age;
 mod last_timestamp;
 mod retention;
 mod snapshots_total;
+mod source_parse_errors;
 mod total_size_bytes;
 
 struct MetricLabel {
@@ -85,6 +86,7 @@ impl KopiaSnapshots {
             .push(self.snapshot_total_size_bytes())
             .push(self.snapshot_age_seconds(now))
             .push(self.snapshot_timestamp_parse_errors_total())
+            .push(self.snapshot_source_parse_errors())
             .push(self.snapshot_last_success_timestamp())
             .push(self.snapshot_errors_total())
             .push(self.snapshot_ignored_errors_total())
@@ -99,12 +101,12 @@ impl KopiaSnapshots {
 mod tests {
     use crate::{
         KopiaSnapshots,
-        test_util::{create_test_snapshot, single_map},
+        test_util::{single_map, test_snapshot},
     };
 
     #[test]
     fn generate_all_metrics() {
-        let snapshots = vec![create_test_snapshot("1", 1000, &["daily-1"])];
+        let snapshots = vec![test_snapshot("1", 1000, &["daily-1"])];
 
         let now = jiff::Timestamp::now();
 

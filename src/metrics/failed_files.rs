@@ -21,11 +21,11 @@ impl KopiaSnapshots {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::{create_test_snapshot, single_map};
+    use crate::test_util::{single_map, test_snapshot};
 
     #[test]
     fn snapshot_failed_files_metrics() {
-        let mut snapshot = create_test_snapshot("1", 1000, &["latest-1"]);
+        let mut snapshot = test_snapshot("1", 1000, &["latest-1"]);
         snapshot.root_entry.summ.num_failed = 3;
 
         let (map, _source) = single_map(vec![snapshot]);
@@ -44,7 +44,7 @@ mod tests {
 
     #[test]
     fn snapshot_failed_files_metrics_no_failures() {
-        let snapshot = create_test_snapshot("1", 1000, &["latest-1"]);
+        let snapshot = test_snapshot("1", 1000, &["latest-1"]);
 
         let (map, _source) = single_map(vec![snapshot]);
         let metrics = map

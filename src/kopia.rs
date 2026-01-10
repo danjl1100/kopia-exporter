@@ -137,15 +137,7 @@ pub(crate) mod test_util {
         SourceStr::new(s.to_string())
     }
 
-    pub fn create_test_source(path: &str) -> Source {
-        Source {
-            host: "test".to_string(),
-            user_name: "user".to_string(),
-            path: path.to_string(),
-        }
-    }
-
-    pub fn single_map(snapshots: Vec<Snapshot>) -> (KopiaSnapshots, SourceStr) {
+    pub fn single_map(snapshots: Vec<SnapshotJson>) -> (KopiaSnapshots, SourceStr) {
         let source = Source {
             host: "host".to_string(),
             user_name: "user_name".to_string(),
@@ -154,22 +146,20 @@ pub(crate) mod test_util {
         .render()
         .expect("valid source");
 
-        let mut snapshots_map = SourceMap::new();
-        snapshots_map.entry(source.clone()).insert_entry(snapshots);
-        (KopiaSnapshots { snapshots_map }, source)
+        let map =
+            KopiaSnapshots::new_from_snapshots(snapshots, |_| Ok(())).expect("valid snapshots");
+
+        (map, source)
     }
 
-    pub fn create_test_snapshot(id: &str, total_size: u64, retention_reasons: &[&str]) -> Snapshot {
-        create_test_snapshot_json(id, total_size, retention_reasons).into()
-    }
-    pub fn create_test_snapshot_json(
-        id: &str,
-        total_size: u64,
-        retention_reasons: &[&str],
-    ) -> SnapshotJson {
+    pub fn test_snapshot(id: &str, total_size: u64, retention_reasons: &[&str]) -> SnapshotJson {
         SnapshotJson {
             id: id.to_string(),
-            source: create_test_source("/test"),
+            source: Source {
+                host: "host".to_string(),
+                user_name: "user_name".to_string(),
+                path: "/path".to_string(),
+            },
             description: "".to_string(),
             start_time: "2025-08-14T00:00:00Z".to_string(),
             end_time: "2025-08-14T00:01:00Z".to_string(),
@@ -209,7 +199,7 @@ pub(crate) mod test_util {
 pub mod tests {
     use crate::{
         KopiaSnapshots,
-        test_util::{create_test_snapshot, single_map, source_str},
+        test_util::{single_map, source_str, test_snapshot},
     };
 
     #[test]
@@ -268,8 +258,8 @@ pub mod tests {
         // This demonstrates that monthly-1, monthly-2, etc. should be counted separately
         // because they represent different retention slots, not multiple instances
         let (map, source) = single_map(vec![
-            create_test_snapshot("snap1", 1000, &["latest-1", "daily-1", "monthly-1"]),
-            create_test_snapshot("snap2", 2000, &["latest-2", "daily-2", "monthly-2"]),
+            test_snapshot("snap1", 1000, &["latest-1", "daily-1", "monthly-1"]),
+            test_snapshot("snap2", 2000, &["latest-2", "daily-2", "monthly-2"]),
         ]);
 
         let counts = map
@@ -299,8 +289,8 @@ pub mod tests {
     #[test]
     fn retention_counts() {
         let (map, source) = single_map(vec![
-            create_test_snapshot("1", 1000, &["latest-1", "daily-1"]),
-            create_test_snapshot("2", 2000, &["daily-2"]),
+            test_snapshot("1", 1000, &["latest-1", "daily-1"]),
+            test_snapshot("2", 2000, &["daily-2"]),
         ]);
 
         let counts = map

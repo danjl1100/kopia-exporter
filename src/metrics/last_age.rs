@@ -93,7 +93,7 @@ impl KopiaSnapshots {
 #[cfg(test)]
 mod tests {
     #![expect(clippy::panic)] // tests can panic
-    use crate::test_util::{create_test_snapshot_json, single_map};
+    use crate::test_util::{single_map, test_snapshot};
 
     #[test]
     fn snapshot_age_metrics() {
@@ -102,9 +102,8 @@ mod tests {
         for minutes in [30, 100] {
             let now = jiff::Timestamp::now();
             let recent_time = now - minutes.minutes();
-            let mut snapshot = create_test_snapshot_json("1", 1000, &["latest-1"]);
+            let mut snapshot = test_snapshot("1", 1000, &["latest-1"]);
             snapshot.end_time = recent_time.to_string();
-            let snapshot = snapshot.into();
 
             let (map, _source) = single_map(vec![snapshot]);
 
@@ -141,9 +140,8 @@ mod tests {
 
     #[test]
     fn snapshot_age_metric_invalid_time() {
-        let mut snapshot = create_test_snapshot_json("1", 1000, &["latest-1"]);
+        let mut snapshot = test_snapshot("1", 1000, &["latest-1"]);
         snapshot.end_time = "invalid-time".to_string();
-        let snapshot = snapshot.into();
 
         let now = jiff::Timestamp::now();
 

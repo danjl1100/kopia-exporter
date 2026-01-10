@@ -26,21 +26,21 @@ impl KopiaSnapshots {
             }
         }
 
-        let Self { snapshots_map } = self;
+        let Self { snapshots_map, .. } = self;
         Output { snapshots_map }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::{create_test_snapshot, single_map};
+    use crate::test_util::{single_map, test_snapshot};
 
     #[test]
     fn snapshots_total_metrics() {
         let snapshots = vec![
-            create_test_snapshot("1", 1000, &["latest-1"]),
-            create_test_snapshot("2", 2000, &["daily-1"]),
-            create_test_snapshot("3", 3000, &["monthly-1"]),
+            test_snapshot("1", 1000, &["latest-1"]),
+            test_snapshot("2", 2000, &["daily-1"]),
+            test_snapshot("3", 3000, &["monthly-1"]),
         ];
 
         let (map, _source) = single_map(snapshots);
@@ -57,12 +57,15 @@ mod tests {
         let (map, _source) = single_map(snapshots);
         let metrics = map.snapshots_total().to_string();
 
-        assert!(metrics.contains("kopia_snapshots_total{source=\"user_name@host:/path\"} 0"));
+        insta::assert_snapshot!(metrics, @r"
+        # HELP kopia_snapshots_total Total number of snapshots
+        # TYPE kopia_snapshots_total gauge
+        ");
     }
 
     #[test]
     fn snapshots_total_metrics_single() {
-        let snapshots = vec![create_test_snapshot("1", 1000, &["latest-1"])];
+        let snapshots = vec![test_snapshot("1", 1000, &["latest-1"])];
         let (map, _source) = single_map(snapshots);
         let metrics = map.snapshots_total().to_string();
 

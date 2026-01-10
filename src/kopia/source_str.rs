@@ -66,6 +66,27 @@ pub struct Error {
     kind: ErrorKind,
     value_source: Source,
 }
+
+impl Error {
+    /// Returns the invalid `user_name` if this is an `InvalidUserName` error
+    #[must_use]
+    pub fn invalid_user_name(&self) -> Option<&str> {
+        match &self.kind {
+            ErrorKind::InvalidUserName { user_name, .. } => Some(user_name),
+            ErrorKind::InvalidHost { .. } => None,
+        }
+    }
+
+    /// Returns the invalid host if this is an `InvalidHost` error
+    #[must_use]
+    pub fn invalid_host(&self) -> Option<&str> {
+        match &self.kind {
+            ErrorKind::InvalidHost { host, .. } => Some(host),
+            ErrorKind::InvalidUserName { .. } => None,
+        }
+    }
+}
+
 #[derive(Debug)]
 enum ErrorKind {
     InvalidUserName {

@@ -20,14 +20,14 @@ impl KopiaSnapshots {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::{create_test_snapshot, single_map};
+    use crate::test_util::{single_map, test_snapshot};
 
     #[test]
     fn latest_snapshot_ignored_errors_metrics() {
-        let mut snap1 = create_test_snapshot("1", 1000, &["daily-2"]);
+        let mut snap1 = test_snapshot("1", 1000, &["daily-2"]);
         snap1.stats.ignored_error_count = 5;
 
-        let mut snap2 = create_test_snapshot("2", 2000, &["latest-1"]);
+        let mut snap2 = test_snapshot("2", 2000, &["latest-1"]);
         snap2.stats.ignored_error_count = 3;
 
         let (map, _source) = single_map(vec![snap1, snap2]);

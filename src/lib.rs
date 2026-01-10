@@ -65,9 +65,54 @@ pub mod metrics;
 #[derive(Clone, Debug)]
 pub struct KopiaSnapshots {
     snapshots_map: SourceMap<Vec<Snapshot>>,
+    invalid_user_names: std::collections::BTreeMap<String, u32>,
+    invalid_hosts: std::collections::BTreeMap<String, u32>,
 }
 
 impl KopiaSnapshots {
+    /// Creates a new `KopiaSnapshots` from a vector of parsed snapshots.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `invalid_source_fn` returns an error
+    pub fn new_from_snapshots(
+        snapshots: Vec<SnapshotJson>,
+        invalid_source_fn: impl Fn(SourceStrError) -> eyre::Result<()>,
+    ) -> Result<Self> {
+        // organize by [`SourceStr`]
+        let mut snapshots_map = SourceMap::new();
+        let mut invalid_user_names = std::collections::BTreeMap::new();
+        let mut invalid_hosts = std::collections::BTreeMap::new();
+
+        for snapshot in snapshots {
+            let source_str = match snapshot.source.render() {
+                Ok(s) => s,
+                Err(e) => {
+                    // Track the invalid source
+                    if let Some(invalid_user) = e.invalid_user_name() {
+                        *invalid_user_names
+                            .entry(invalid_user.to_string())
+                            .or_insert(0) += 1;
+                    }
+                    if let Some(invalid_host) = e.invalid_host() {
+                        *invalid_hosts.entry(invalid_host.to_string()).or_insert(0) += 1;
+                    }
+
+                    // Call the callback for backward compatibility
+                    invalid_source_fn(e)?;
+                    continue;
+                }
+            };
+            let list: &mut Vec<Snapshot> = snapshots_map.entry(source_str).or_default();
+            list.push(snapshot.into());
+        }
+        Ok(Self {
+            snapshots_map,
+            invalid_user_names,
+            invalid_hosts,
+        })
+    }
+
     /// Parses JSON content into a vector of snapshots.
     ///
     /// # Errors
@@ -79,21 +124,7 @@ impl KopiaSnapshots {
         invalid_source_fn: impl Fn(SourceStrError) -> eyre::Result<()>,
     ) -> Result<Self> {
         let snapshots: Vec<SnapshotJson> = serde_json::from_str(json_content)?;
-
-        // organize by [`SourceStr`]
-        let mut snapshots_map = SourceMap::new();
-        for snapshot in snapshots {
-            let source_str = match snapshot.source.render() {
-                Ok(s) => s,
-                Err(e) => {
-                    invalid_source_fn(e)?;
-                    continue;
-                }
-            };
-            let list: &mut Vec<Snapshot> = snapshots_map.entry(source_str).or_default();
-            list.push(snapshot.into());
-        }
-        Ok(Self { snapshots_map })
+        Self::new_from_snapshots(snapshots, invalid_source_fn)
     }
 
     /// Executes kopia command to retrieve snapshots and parses the output.
@@ -162,7 +193,7 @@ impl KopiaSnapshots {
     /// Returns the inner [`SourceMap`]
     #[must_use]
     pub fn into_inner_map(self) -> SourceMap<Vec<Snapshot>> {
-        let Self { snapshots_map } = self;
+        let Self { snapshots_map, .. } = self;
         snapshots_map
     }
 }

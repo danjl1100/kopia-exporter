@@ -40,17 +40,17 @@ impl KopiaSnapshots {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::{create_test_snapshot_json, single_map};
+    use crate::test_util::{single_map, test_snapshot};
 
     #[test]
     fn snapshot_last_success_timestamp_metrics() {
-        let mut snapshot1 = create_test_snapshot_json("1", 1000, &["daily-2"]);
+        let mut snapshot1 = test_snapshot("1", 1000, &["daily-2"]);
         snapshot1.end_time = "2025-01-01T00:00:00Z".to_string();
 
-        let mut snapshot2 = create_test_snapshot_json("2", 2000, &["latest-1"]);
+        let mut snapshot2 = test_snapshot("2", 2000, &["latest-1"]);
         snapshot2.end_time = "2025-01-02T12:30:00Z".to_string();
 
-        let (map, _source) = single_map(vec![snapshot1.into(), snapshot2.into()]);
+        let (map, _source) = single_map(vec![snapshot1, snapshot2]);
 
         let metrics = map
             .snapshot_last_success_timestamp()
@@ -83,10 +83,10 @@ mod tests {
 
     #[test]
     fn snapshot_last_success_timestamp_invalid_time() {
-        let mut snapshot = create_test_snapshot_json("1", 1000, &["latest-1"]);
+        let mut snapshot = test_snapshot("1", 1000, &["latest-1"]);
         snapshot.end_time = "invalid-time".to_string();
 
-        let (map, _source) = single_map(vec![snapshot.into()]);
+        let (map, _source) = single_map(vec![snapshot]);
         let metrics = map.snapshot_last_success_timestamp();
 
         assert!(metrics.is_none());

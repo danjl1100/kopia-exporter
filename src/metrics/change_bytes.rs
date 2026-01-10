@@ -47,13 +47,13 @@ impl KopiaSnapshots {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::{create_test_snapshot, single_map};
+    use crate::test_util::{single_map, test_snapshot};
 
     #[test]
     fn snapshot_size_change_positive() {
         let (map, _source) = single_map(vec![
-            create_test_snapshot("1", 1000, &["daily-2"]),
-            create_test_snapshot("2", 2500, &["latest-1"]),
+            test_snapshot("1", 1000, &["daily-2"]),
+            test_snapshot("2", 2500, &["latest-1"]),
         ]);
 
         let metrics = map
@@ -73,8 +73,8 @@ mod tests {
     #[test]
     fn snapshot_size_change_negative() {
         let (map, _source) = single_map(vec![
-            create_test_snapshot("1", 5000, &["daily-2"]),
-            create_test_snapshot("2", 2000, &["latest-1"]),
+            test_snapshot("1", 5000, &["daily-2"]),
+            test_snapshot("2", 2000, &["latest-1"]),
         ]);
 
         let metrics = map
@@ -92,7 +92,7 @@ mod tests {
 
     #[test]
     fn snapshot_size_change_single_snapshot() {
-        let (map, _source) = single_map(vec![create_test_snapshot("1", 1000, &["latest-1"])]);
+        let (map, _source) = single_map(vec![test_snapshot("1", 1000, &["latest-1"])]);
 
         let metrics = map.snapshot_size_change_bytes();
         assert!(metrics.is_none());

@@ -21,13 +21,13 @@ impl KopiaSnapshots {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::{create_test_snapshot, single_map};
+    use crate::test_util::{single_map, test_snapshot};
 
     #[test]
     fn latest_snapshot_size_metrics() {
         let (map, _source) = single_map(vec![
-            create_test_snapshot("1", 1000, &["daily-2"]),
-            create_test_snapshot("2", 2000, &["latest-1"]),
+            test_snapshot("1", 1000, &["daily-2"]),
+            test_snapshot("2", 2000, &["latest-1"]),
         ]);
 
         let metrics = map
