@@ -35,6 +35,10 @@
 //! ### Data integrity verification
 //! - `kopia_snapshot_failed_files_total` - Number of failed files in latest snapshot (not present if the snapshots list is empty)
 //!
+//! ### Data quality metrics
+//! - `kopia_snapshot_source_parse_errors` - Number of snapshots with unparseable sources (not present if there are no parse errors)
+//! - `kopia_snapshot_timestamp_parse_errors_total` - Number of snapshots with unparseable timestamps (not present if there are no parse errors)
+//!
 //! ### Repository connectivity
 //! - `kopia_repository_accessible` - 1 if repository is accessible, 0 otherwise
 //!
