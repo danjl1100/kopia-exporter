@@ -20,9 +20,37 @@ impl KopiaSnapshots {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_util::{create_test_snapshot, single_map};
+
     #[test]
-    #[ignore = "TODO"]
-    fn todo() {
-        todo!()
+    fn latest_snapshot_ignored_errors_metrics() {
+        let mut snap1 = create_test_snapshot("1", 1000, &["daily-2"]);
+        snap1.stats.ignored_error_count = 5;
+
+        let mut snap2 = create_test_snapshot("2", 2000, &["latest-1"]);
+        snap2.stats.ignored_error_count = 3;
+
+        let (map, _source) = single_map(vec![snap1, snap2]);
+
+        let metrics = map
+            .snapshot_ignored_errors_total()
+            .expect("nonempty")
+            .to_string();
+
+        assert!(metrics.contains("# HELP kopia_snapshot_ignored_errors_total"));
+        assert!(metrics.contains("# TYPE kopia_snapshot_ignored_errors_total gauge"));
+        assert!(
+            metrics
+                .contains("kopia_snapshot_ignored_errors_total{source=\"user_name@host:/path\"} 3"),
+            "{metrics:?}"
+        );
+    }
+
+    #[test]
+    fn latest_snapshot_ignored_errors_metrics_empty() {
+        let (map, _source) = single_map(vec![]);
+        let metrics = map.snapshot_ignored_errors_total();
+
+        assert!(metrics.is_none());
     }
 }

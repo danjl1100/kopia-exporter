@@ -1,4 +1,4 @@
-- [ ] add tests for metrics modules that are missing tests (marked as an ignored `todo` tests), verify the metric calculation through inspecting the output metric strings
+- [x] add tests for metrics modules that are missing tests (marked as an ignored `todo` tests), verify the metric calculation through inspecting the output metric strings
     - see existing metric tests for good examples in metrics modules: `total_size_bytes` and `retention`
 
 ------
