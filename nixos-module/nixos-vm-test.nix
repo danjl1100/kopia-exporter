@@ -4,8 +4,24 @@
   kopia-exporter ? pkgs.callPackage ../. {},
 }: let
   vmTestLib = import ./vm-test-lib.nix {inherit pkgs kopia-exporter;};
+
+  # Test basic endpoints (root and metrics)
+  testBasicEndpoints = {port ? "9090"}: ''
+    # Test the root endpoint
+    machine.succeed("curl -f http://localhost:${port}/")
+
+    # Test the metrics endpoint
+    metrics_output = machine.succeed("curl -f http://localhost:${port}/metrics")
+
+    # Verify the metrics contain expected Prometheus format
+    assert "kopia_snapshots_by_retention" in metrics_output
+    assert "kopia_snapshot_total_size_bytes" in metrics_output
+
+    # Test that invalid endpoints return 404
+    machine.fail("curl -f http://localhost:${port}/invalid")
+  '';
 in
-  pkgs.nixosTest {
+  pkgs.testers.nixosTest {
     name = "kopia-exporter-service";
 
     nodes.machine = {
@@ -27,7 +43,7 @@ in
       };
 
     testScript = vmTestLib.mkTestScript {
-      customTests = vmTestLib.httpTests.basicEndpoints {};
+      customTests = testBasicEndpoints {};
       testDescription = "Basic service test";
     };
   }
