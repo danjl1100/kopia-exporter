@@ -1,3 +1,5 @@
+//! Parsed types for `kopia` snapshot listings in JSON format
+
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -111,6 +113,7 @@ impl From<SnapshotJson> for Snapshot {
 }
 
 impl KopiaSnapshots {
+    /// Returns the number of snapshots for each [`Snapshot::retention_reason`]
     #[must_use]
     pub fn get_retention_counts(&self) -> SourceMap<BTreeMap<String, u32>> {
         self.snapshots_map
@@ -134,7 +137,7 @@ pub(crate) mod test_util {
 
     #[track_caller]
     pub fn source_str(s: &str) -> SourceStr {
-        SourceStr::new(s.to_string())
+        SourceStr::new_unchecked(s.to_string())
     }
 
     pub fn single_map(snapshots: Vec<SnapshotJson>) -> (KopiaSnapshots, SourceStr) {
@@ -153,13 +156,27 @@ pub(crate) mod test_util {
     }
 
     pub fn test_snapshot(id: &str, total_size: u64, retention_reasons: &[&str]) -> SnapshotJson {
-        SnapshotJson {
-            id: id.to_string(),
-            source: Source {
+        test_snapshot_with_source(
+            id,
+            total_size,
+            retention_reasons,
+            Source {
                 host: "host".to_string(),
                 user_name: "user_name".to_string(),
                 path: "/path".to_string(),
             },
+        )
+    }
+
+    pub fn test_snapshot_with_source(
+        id: &str,
+        total_size: u64,
+        retention_reasons: &[&str],
+        source: Source,
+    ) -> SnapshotJson {
+        SnapshotJson {
+            id: id.to_string(),
+            source,
             description: "".to_string(),
             start_time: "2025-08-14T00:00:00Z".to_string(),
             end_time: "2025-08-14T00:01:00Z".to_string(),
@@ -193,10 +210,37 @@ pub(crate) mod test_util {
             retention_reason: retention_reasons.iter().map(ToString::to_string).collect(),
         }
     }
+
+    pub fn multi_map(
+        sources_snapshots: Vec<(&str, &str, &str, Vec<SnapshotJson>)>,
+    ) -> (KopiaSnapshots, Vec<SourceStr>) {
+        let mut all_snapshots = Vec::new();
+        let mut sources = Vec::new();
+
+        for (user_name, host, path, snapshots) in sources_snapshots {
+            let source = Source {
+                host: host.to_string(),
+                user_name: user_name.to_string(),
+                path: path.to_string(),
+            };
+            let source_str = source.render().expect("valid source");
+            sources.push(source_str);
+
+            for mut snapshot in snapshots {
+                snapshot.source = source.clone();
+                all_snapshots.push(snapshot);
+            }
+        }
+
+        let map =
+            KopiaSnapshots::new_from_snapshots(all_snapshots, |_| Ok(())).expect("valid snapshots");
+
+        (map, sources)
+    }
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use crate::{
         KopiaSnapshots,
         test_util::{single_map, source_str, test_snapshot},

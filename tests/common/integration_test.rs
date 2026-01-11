@@ -14,7 +14,7 @@ use std::time::Duration;
 fn test_subprocess_with_fake_kopia() {
     let timeout = std::time::Duration::from_secs(15);
 
-    let source = SourceStr::new("kopia-system@milton:/persist-home".to_string());
+    let source = SourceStr::new_unchecked("kopia-system@milton:/persist-home".to_string());
 
     let snapshots =
         KopiaSnapshots::new_from_command(FAKE_KOPIA_BIN, timeout, |e| eyre::bail!(e)).unwrap();

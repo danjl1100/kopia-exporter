@@ -51,7 +51,7 @@ impl KopiaSnapshots {
 
 #[cfg(test)]
 mod tests {
-    use crate::{KopiaSnapshots, Source, test_util::test_snapshot};
+    use crate::{AssertContains as _, KopiaSnapshots, Source, test_util::test_snapshot};
 
     #[test]
     fn source_parse_errors_invalid_user() {
@@ -71,17 +71,13 @@ mod tests {
 
         let map =
             KopiaSnapshots::new_from_snapshots(vec![snap1, snap2], |_| Ok(())).expect("valid");
-        let metrics = map
-            .snapshot_source_parse_errors()
+        map.snapshot_source_parse_errors()
             .expect("has errors")
-            .to_string();
-
-        assert!(metrics.contains("# HELP kopia_snapshot_source_parse_errors"));
-        assert!(metrics.contains("# TYPE kopia_snapshot_source_parse_errors gauge"));
-        assert!(
-            metrics.contains("kopia_snapshot_source_parse_errors{invalid_user=\"bad@user\"} 2"),
-            "{metrics:?}"
-        );
+            .assert_contains_snippets(&["# HELP kopia_snapshot_source_parse_errors"])
+            .assert_contains_lines(&[
+                "# TYPE kopia_snapshot_source_parse_errors gauge",
+                "kopia_snapshot_source_parse_errors{invalid_user=\"bad@user\"} 2",
+            ]);
     }
 
     #[test]
@@ -94,14 +90,11 @@ mod tests {
         };
 
         let map = KopiaSnapshots::new_from_snapshots(vec![snap], |_| Ok(())).expect("valid");
-        let metrics = map
-            .snapshot_source_parse_errors()
+        map.snapshot_source_parse_errors()
             .expect("has errors")
-            .to_string();
-
-        assert!(
-            metrics.contains("kopia_snapshot_source_parse_errors{invalid_host=\"bad:host\"} 1")
-        );
+            .assert_contains_lines(&[
+                "kopia_snapshot_source_parse_errors{invalid_host=\"bad:host\"} 1",
+            ]);
     }
 
     #[test]
@@ -132,12 +125,11 @@ mod tests {
 
         let map =
             KopiaSnapshots::new_from_snapshots(vec![snap1, snap2], |_| Ok(())).expect("valid");
-        let metrics = map
-            .snapshot_source_parse_errors()
+        map.snapshot_source_parse_errors()
             .expect("has errors")
-            .to_string();
-
-        assert!(metrics.contains("kopia_snapshot_source_parse_errors{invalid_user=\"user@1\"} 1"));
-        assert!(metrics.contains("kopia_snapshot_source_parse_errors{invalid_host=\"host:2\"} 1"));
+            .assert_contains_lines(&[
+                "kopia_snapshot_source_parse_errors{invalid_user=\"user@1\"} 1",
+                "kopia_snapshot_source_parse_errors{invalid_host=\"host:2\"} 1",
+            ]);
     }
 }

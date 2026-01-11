@@ -5,10 +5,12 @@ use std::collections::BTreeMap;
 #[derive(Clone, Debug, Default)]
 pub struct SourceMap<T>(BTreeMap<SourceStr, T>);
 impl<T> SourceMap<T> {
+    /// Creates an empty map
     #[must_use]
     pub fn new() -> Self {
         Self(BTreeMap::new())
     }
+    /// Returns a handle to the entry with the specified key
     pub fn entry(
         &mut self,
         key: SourceStr,
@@ -35,15 +37,18 @@ impl<T> SourceMap<T> {
         assert!(inner.is_empty(), "length 1, removed 1, should be empty");
         Ok(value)
     }
+    /// Iterates the map
     pub fn iter(&self) -> std::collections::btree_map::Iter<'_, SourceStr, T> {
         let Self(inner) = self;
         inner.iter()
     }
+    /// Returns `true` if the map is empty
     #[must_use]
     pub fn is_empty(&self) -> bool {
         let Self(inner) = self;
         inner.is_empty()
     }
+    /// Wraps `self` if there are any source entries
     pub fn map_nonempty<U>(self, map_fn: impl FnOnce(Self) -> U) -> Option<U> {
         if self.is_empty() {
             None

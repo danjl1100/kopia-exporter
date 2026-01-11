@@ -20,7 +20,10 @@ impl KopiaSnapshots {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::{single_map, test_snapshot};
+    use crate::{
+        AssertContains as _,
+        test_util::{multi_map, single_map, test_snapshot},
+    };
 
     #[test]
     fn latest_snapshot_ignored_errors_metrics() {
@@ -32,18 +35,13 @@ mod tests {
 
         let (map, _source) = single_map(vec![snap1, snap2]);
 
-        let metrics = map
-            .snapshot_ignored_errors_total()
+        map.snapshot_ignored_errors_total()
             .expect("nonempty")
-            .to_string();
-
-        assert!(metrics.contains("# HELP kopia_snapshot_ignored_errors_total"));
-        assert!(metrics.contains("# TYPE kopia_snapshot_ignored_errors_total gauge"));
-        assert!(
-            metrics
-                .contains("kopia_snapshot_ignored_errors_total{source=\"user_name@host:/path\"} 3"),
-            "{metrics:?}"
-        );
+            .assert_contains_snippets(&["# HELP kopia_snapshot_ignored_errors_total"])
+            .assert_contains_lines(&[
+                "# TYPE kopia_snapshot_ignored_errors_total gauge",
+                "kopia_snapshot_ignored_errors_total{source=\"user_name@host:/path\"} 3",
+            ]);
     }
 
     #[test]
@@ -52,5 +50,28 @@ mod tests {
         let metrics = map.snapshot_ignored_errors_total();
 
         assert!(metrics.is_none());
+    }
+
+    #[test]
+    fn latest_snapshot_ignored_errors_multi_source() {
+        let mut snapshot1 = test_snapshot("1", 1000, &["latest-1"]);
+        snapshot1.stats.ignored_error_count = 4;
+
+        let mut snapshot2 = test_snapshot("2", 2000, &["latest-1"]);
+        snapshot2.stats.ignored_error_count = 1;
+
+        let (map, _sources) = multi_map(vec![
+            ("alice", "hostA", "/data", vec![snapshot1]),
+            ("bob", "hostB", "/backup", vec![snapshot2]),
+        ]);
+
+        map.snapshot_ignored_errors_total()
+            .expect("nonempty")
+            .assert_contains_snippets(&["# HELP kopia_snapshot_ignored_errors_total"])
+            .assert_contains_lines(&[
+                "# TYPE kopia_snapshot_ignored_errors_total gauge",
+                "kopia_snapshot_ignored_errors_total{source=\"alice@hostA:/data\"} 4",
+                "kopia_snapshot_ignored_errors_total{source=\"bob@hostB:/backup\"} 1",
+            ]);
     }
 }

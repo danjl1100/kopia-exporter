@@ -33,7 +33,10 @@ impl KopiaSnapshots {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::{single_map, test_snapshot};
+    use crate::{
+        AssertContains as _,
+        test_util::{multi_map, single_map, test_snapshot},
+    };
 
     #[test]
     fn snapshots_total_metrics() {
@@ -44,11 +47,12 @@ mod tests {
         ];
 
         let (map, _source) = single_map(snapshots);
-        let metrics = map.snapshots_total().to_string();
-
-        assert!(metrics.contains("# HELP kopia_snapshots_total"));
-        assert!(metrics.contains("# TYPE kopia_snapshots_total gauge"));
-        assert!(metrics.contains("kopia_snapshots_total{source=\"user_name@host:/path\"} 3"));
+        map.snapshots_total()
+            .assert_contains_snippets(&["# HELP kopia_snapshots_total"])
+            .assert_contains_lines(&[
+                "# TYPE kopia_snapshots_total gauge",
+                "kopia_snapshots_total{source=\"user_name@host:/path\"} 3",
+            ]);
     }
 
     #[test]
@@ -67,8 +71,32 @@ mod tests {
     fn snapshots_total_metrics_single() {
         let snapshots = vec![test_snapshot("1", 1000, &["latest-1"])];
         let (map, _source) = single_map(snapshots);
-        let metrics = map.snapshots_total().to_string();
+        map.snapshots_total()
+            .assert_contains_lines(&["kopia_snapshots_total{source=\"user_name@host:/path\"} 1"]);
+    }
 
-        assert!(metrics.contains("kopia_snapshots_total{source=\"user_name@host:/path\"} 1"));
+    #[test]
+    fn snapshots_total_multi_source() {
+        let snapshots_1 = vec![
+            test_snapshot("1", 1000, &["latest-1"]),
+            test_snapshot("2", 2000, &["daily-1"]),
+        ];
+        let snapshots_2 = vec![
+            test_snapshot("3", 3000, &["latest-1"]),
+            test_snapshot("4", 4000, &["daily-1"]),
+            test_snapshot("5", 5000, &["monthly-1"]),
+        ];
+        let (map, _sources) = multi_map(vec![
+            ("alice", "hostA", "/data", snapshots_1),
+            ("bob", "hostB", "/backup", snapshots_2),
+        ]);
+
+        map.snapshots_total()
+            .assert_contains_snippets(&["# HELP kopia_snapshots_total"])
+            .assert_contains_lines(&[
+                "# TYPE kopia_snapshots_total gauge",
+                "kopia_snapshots_total{source=\"alice@hostA:/data\"} 2",
+                "kopia_snapshots_total{source=\"bob@hostB:/backup\"} 3",
+            ]);
     }
 }

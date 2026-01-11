@@ -41,7 +41,10 @@ impl KopiaSnapshots {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::{single_map, test_snapshot};
+    use crate::{
+        AssertContains as _,
+        test_util::{multi_map, single_map, test_snapshot},
+    };
 
     #[test]
     fn snapshots_by_retention_metrics() {
@@ -50,12 +53,42 @@ mod tests {
             test_snapshot("2", 2000, &["daily-2"]),
         ]);
 
-        let metrics = map.snapshots_by_retention().to_string();
+        map.snapshots_by_retention()
+            .assert_contains_snippets(&["# HELP kopia_snapshots_by_retention"])
+            .assert_contains_lines(&[
+                "# TYPE kopia_snapshots_by_retention gauge",
+                "kopia_snapshots_by_retention{source=\"user_name@host:/path\",retention_reason=\"latest-1\"} 1",
+                "kopia_snapshots_by_retention{source=\"user_name@host:/path\",retention_reason=\"daily-1\"} 1",
+                "kopia_snapshots_by_retention{source=\"user_name@host:/path\",retention_reason=\"daily-2\"} 1",
+            ]);
+    }
 
-        assert!(metrics.contains("# HELP kopia_snapshots_by_retention"));
-        assert!(metrics.contains("# TYPE kopia_snapshots_by_retention gauge"));
-        assert!(metrics.contains("kopia_snapshots_by_retention{source=\"user_name@host:/path\",retention_reason=\"latest-1\"} 1"));
-        assert!(metrics.contains("kopia_snapshots_by_retention{source=\"user_name@host:/path\",retention_reason=\"daily-1\"} 1"));
-        assert!(metrics.contains("kopia_snapshots_by_retention{source=\"user_name@host:/path\",retention_reason=\"daily-2\"} 1"));
+    #[test]
+    fn snapshots_by_retention_multi_source() {
+        let snapshots_1 = vec![
+            test_snapshot("1", 1000, &["latest-1", "daily-1"]),
+            test_snapshot("2", 2000, &["daily-2"]),
+        ];
+        let snapshots_2 = vec![
+            test_snapshot("3", 3000, &["latest-1"]),
+            test_snapshot("4", 4000, &["latest-1", "monthly-1"]),
+            test_snapshot("5", 5000, &["daily-1"]),
+        ];
+        let (map, _sources) = multi_map(vec![
+            ("alice", "hostA", "/data", snapshots_1),
+            ("bob", "hostB", "/backup", snapshots_2),
+        ]);
+
+        map.snapshots_by_retention()
+            .assert_contains_snippets(&["# HELP kopia_snapshots_by_retention"])
+            .assert_contains_lines(&[
+                "# TYPE kopia_snapshots_by_retention gauge",
+                "kopia_snapshots_by_retention{source=\"alice@hostA:/data\",retention_reason=\"latest-1\"} 1",
+                "kopia_snapshots_by_retention{source=\"alice@hostA:/data\",retention_reason=\"daily-1\"} 1",
+                "kopia_snapshots_by_retention{source=\"alice@hostA:/data\",retention_reason=\"daily-2\"} 1",
+                "kopia_snapshots_by_retention{source=\"bob@hostB:/backup\",retention_reason=\"latest-1\"} 2",
+                "kopia_snapshots_by_retention{source=\"bob@hostB:/backup\",retention_reason=\"monthly-1\"} 1",
+                "kopia_snapshots_by_retention{source=\"bob@hostB:/backup\",retention_reason=\"daily-1\"} 1",
+            ]);
     }
 }

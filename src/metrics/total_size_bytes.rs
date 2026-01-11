@@ -21,7 +21,10 @@ impl KopiaSnapshots {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::{single_map, test_snapshot};
+    use crate::{
+        AssertContains as _,
+        test_util::{multi_map, single_map, test_snapshot},
+    };
 
     #[test]
     fn latest_snapshot_size_metrics() {
@@ -30,18 +33,13 @@ mod tests {
             test_snapshot("2", 2000, &["latest-1"]),
         ]);
 
-        let metrics = map
-            .snapshot_total_size_bytes()
+        map.snapshot_total_size_bytes()
             .expect("nonempty")
-            .to_string();
-
-        assert!(metrics.contains("# HELP kopia_snapshot_total_size_bytes"));
-        assert!(metrics.contains("# TYPE kopia_snapshot_total_size_bytes gauge"));
-        assert!(
-            metrics
-                .contains("kopia_snapshot_total_size_bytes{source=\"user_name@host:/path\"} 2000"),
-            "{metrics:?}"
-        );
+            .assert_contains_snippets(&["# HELP kopia_snapshot_total_size_bytes"])
+            .assert_contains_lines(&[
+                "# TYPE kopia_snapshot_total_size_bytes gauge",
+                "kopia_snapshot_total_size_bytes{source=\"user_name@host:/path\"} 2000",
+            ]);
     }
 
     #[test]
@@ -50,5 +48,30 @@ mod tests {
         let metrics = map.snapshot_total_size_bytes();
 
         assert!(metrics.is_none());
+    }
+
+    #[test]
+    fn latest_snapshot_size_multi_source() {
+        let snapshots_1 = vec![
+            test_snapshot("1", 1000, &["daily-2"]),
+            test_snapshot("2", 2500, &["latest-1"]),
+        ];
+        let snapshots_2 = vec![
+            test_snapshot("3", 5000, &["daily-2"]),
+            test_snapshot("4", 8000, &["latest-1"]),
+        ];
+        let (map, _sources) = multi_map(vec![
+            ("alice", "hostA", "/data", snapshots_1),
+            ("bob", "hostB", "/backup", snapshots_2),
+        ]);
+
+        map.snapshot_total_size_bytes()
+            .expect("nonempty")
+            .assert_contains_snippets(&["# HELP kopia_snapshot_total_size_bytes"])
+            .assert_contains_lines(&[
+                "# TYPE kopia_snapshot_total_size_bytes gauge",
+                "kopia_snapshot_total_size_bytes{source=\"alice@hostA:/data\"} 2500",
+                "kopia_snapshot_total_size_bytes{source=\"bob@hostB:/backup\"} 8000",
+            ]);
     }
 }

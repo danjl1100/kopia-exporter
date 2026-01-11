@@ -48,8 +48,9 @@ impl Source {
 #[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SourceStr(String);
 impl SourceStr {
+    /// Constructs from a string, for test use only
     #[must_use]
-    pub fn new(value: String) -> Self {
+    pub fn new_unchecked(value: String) -> Self {
         Self(value)
     }
 }
@@ -61,6 +62,7 @@ impl std::fmt::Debug for SourceStr {
     }
 }
 
+/// Error converting a [`Source`] to a [`SourceStr`]
 #[derive(Debug)]
 pub struct Error {
     kind: ErrorKind,

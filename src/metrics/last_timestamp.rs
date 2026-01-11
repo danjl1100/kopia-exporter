@@ -40,7 +40,10 @@ impl KopiaSnapshots {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::{single_map, test_snapshot};
+    use crate::{
+        AssertContains as _,
+        test_util::{multi_map, single_map, test_snapshot},
+    };
 
     #[test]
     fn snapshot_last_success_timestamp_metrics() {
@@ -52,25 +55,50 @@ mod tests {
 
         let (map, _source) = single_map(vec![snapshot1, snapshot2]);
 
-        let metrics = map
-            .snapshot_last_success_timestamp()
-            .expect("nonempty")
-            .to_string();
-
-        // Calculate expected timestamp for "2025-01-02T12:30:00Z"
         let expected_timestamp: i64 = "2025-01-02T12:30:00Z"
             .parse::<jiff::Timestamp>()
             .expect("valid timestamp")
             .as_second();
 
-        assert!(metrics.contains("# HELP kopia_snapshot_last_success_timestamp"));
-        assert!(metrics.contains("# TYPE kopia_snapshot_last_success_timestamp gauge"));
-        assert!(
-            metrics.contains(&format!(
-                "kopia_snapshot_last_success_timestamp{{source=\"user_name@host:/path\"}} {expected_timestamp}"
-            )),
-            "{metrics:?}"
-        );
+        map.snapshot_last_success_timestamp()
+            .expect("nonempty")
+            .assert_contains_snippets(&["# HELP kopia_snapshot_last_success_timestamp"])
+            .assert_contains_lines(&[
+                "# TYPE kopia_snapshot_last_success_timestamp gauge",
+                &format!("kopia_snapshot_last_success_timestamp{{source=\"user_name@host:/path\"}} {expected_timestamp}"),
+            ]);
+    }
+
+    #[test]
+    fn snapshot_last_success_timestamp_multi_source() {
+        let mut snapshot1 = test_snapshot("1", 1000, &["latest-1"]);
+        snapshot1.end_time = "2025-01-01T10:00:00Z".to_string();
+
+        let mut snapshot2 = test_snapshot("2", 2000, &["latest-1"]);
+        snapshot2.end_time = "2025-01-02T15:30:00Z".to_string();
+
+        let (map, _sources) = multi_map(vec![
+            ("alice", "hostA", "/data", vec![snapshot1]),
+            ("bob", "hostB", "/backup", vec![snapshot2]),
+        ]);
+
+        let timestamp1: i64 = "2025-01-01T10:00:00Z"
+            .parse::<jiff::Timestamp>()
+            .expect("valid timestamp")
+            .as_second();
+        let timestamp2: i64 = "2025-01-02T15:30:00Z"
+            .parse::<jiff::Timestamp>()
+            .expect("valid timestamp")
+            .as_second();
+
+        map.snapshot_last_success_timestamp()
+            .expect("nonempty")
+            .assert_contains_snippets(&["# HELP kopia_snapshot_last_success_timestamp"])
+            .assert_contains_lines(&[
+                "# TYPE kopia_snapshot_last_success_timestamp gauge",
+                &format!("kopia_snapshot_last_success_timestamp{{source=\"alice@hostA:/data\"}} {timestamp1}"),
+                &format!("kopia_snapshot_last_success_timestamp{{source=\"bob@hostB:/backup\"}} {timestamp2}"),
+            ]);
     }
 
     #[test]

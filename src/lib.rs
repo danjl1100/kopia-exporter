@@ -57,15 +57,17 @@
 //! ### Pruning health
 //! - `kopia_retention_policy_violations_total` - Snapshots that should have been pruned but weren't
 
-#![expect(missing_docs)] // TODO after [`KopiaMetrics`] restructure
-
+pub use crate::assert_contains::AssertContains;
 pub use crate::kopia::*;
 use eyre::{Result, eyre};
 use std::time::Duration;
 
 pub mod kopia;
-pub mod metrics;
+mod metrics;
 
+mod assert_contains;
+
+/// Parsed snapshots list from `kopia`
 #[derive(Clone, Debug)]
 pub struct KopiaSnapshots {
     snapshots_map: SourceMap<Vec<Snapshot>>,

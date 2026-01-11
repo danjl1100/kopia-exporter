@@ -92,8 +92,10 @@ impl KopiaSnapshots {
 
 #[cfg(test)]
 mod tests {
-    #![expect(clippy::panic)] // tests can panic
-    use crate::test_util::{single_map, test_snapshot};
+    use crate::{
+        AssertContains as _,
+        test_util::{multi_map, single_map, test_snapshot},
+    };
 
     #[test]
     fn snapshot_age_metrics() {
@@ -105,27 +107,19 @@ mod tests {
             let mut snapshot = test_snapshot("1", 1000, &["latest-1"]);
             snapshot.end_time = recent_time.to_string();
 
+            let seconds = minutes * 60;
+
             let (map, _source) = single_map(vec![snapshot]);
 
-            let metrics = map.snapshot_age_seconds(now).expect("nonempty").to_string();
-
-            assert!(metrics.contains("# HELP kopia_snapshot_age_seconds"));
-            assert!(metrics.contains("# TYPE kopia_snapshot_age_seconds gauge"));
-
-            let Some(age_line) = metrics.lines().find(|line| {
-                line.starts_with("kopia_snapshot_age_seconds{source=\"user_name@host:/path\"} ")
-            }) else {
-                panic!("Should contain age metric: {metrics:?}")
-            };
-
-            let age_value: i64 = age_line
-                .split_whitespace()
-                .nth(1)
-                .expect("Should have age value")
-                .parse()
-                .expect("Age should be a valid number");
-
-            assert_eq!(age_value, minutes * 60); // exactly X minutes
+            map.snapshot_age_seconds(now)
+                .expect("nonempty")
+                .assert_contains_snippets(&["# HELP kopia_snapshot_age_seconds"])
+                .assert_contains_lines(&[
+                    "# TYPE kopia_snapshot_age_seconds gauge",
+                    &format!(
+                        "kopia_snapshot_age_seconds{{source=\"user_name@host:/path\"}} {seconds}"
+                    ),
+                ]);
         }
     }
 
@@ -146,15 +140,69 @@ mod tests {
         let now = jiff::Timestamp::now();
 
         let (map, _source) = single_map(vec![snapshot]);
-        let age_metrics = map.snapshot_age_seconds(now);
-        let time_error_metrics = map
-            .snapshot_timestamp_parse_errors_total()
-            .expect("nonempty")
-            .to_string();
 
+        let age_metrics = map.snapshot_age_seconds(now);
         assert!(age_metrics.is_none());
-        assert!(time_error_metrics.contains(
-            "kopia_snapshot_timestamp_parse_errors_total{source=\"user_name@host:/path\"} 1"
-        ));
+
+        map.snapshot_timestamp_parse_errors_total()
+            .expect("nonempty")
+            .assert_contains_lines(&[
+                "kopia_snapshot_timestamp_parse_errors_total{source=\"user_name@host:/path\"} 1",
+            ]);
+    }
+
+    #[test]
+    fn snapshot_age_multi_source() {
+        use jiff::ToSpan as _;
+
+        let now = jiff::Timestamp::now();
+        let age1 = 45.minutes();
+        let age2 = 120.minutes();
+
+        let mut snapshot1 = test_snapshot("1", 1000, &["latest-1"]);
+        snapshot1.end_time = (now - age1).to_string();
+
+        let mut snapshot2 = test_snapshot("2", 2000, &["latest-1"]);
+        snapshot2.end_time = (now - age2).to_string();
+
+        let (map, _sources) = multi_map(vec![
+            ("alice", "hostA", "/data", vec![snapshot1]),
+            ("bob", "hostB", "/backup", vec![snapshot2]),
+        ]);
+
+        map.snapshot_age_seconds(now)
+            .expect("nonempty")
+            .assert_contains_snippets(&["# HELP kopia_snapshot_age_seconds"])
+            .assert_contains_lines(&[
+                "# TYPE kopia_snapshot_age_seconds gauge",
+                "kopia_snapshot_age_seconds{source=\"alice@hostA:/data\"} 2700",
+                "kopia_snapshot_age_seconds{source=\"bob@hostB:/backup\"} 7200",
+            ]);
+    }
+
+    #[test]
+    fn snapshot_timestamp_parse_errors_multi_source() {
+        let mut snapshot1 = test_snapshot("1", 1000, &["latest-1"]);
+        snapshot1.end_time = "invalid-time".to_string();
+
+        let mut snapshot2 = test_snapshot("2", 2000, &["latest-1"]);
+        snapshot2.end_time = "also-invalid".to_string();
+
+        let mut snapshot3 = test_snapshot("3", 3000, &["latest-1"]);
+        snapshot3.end_time = "still-invalid".to_string();
+
+        let (map, _sources) = multi_map(vec![
+            ("alice", "hostA", "/data", vec![snapshot1, snapshot2]),
+            ("bob", "hostB", "/backup", vec![snapshot3]),
+        ]);
+
+        map.snapshot_timestamp_parse_errors_total()
+            .expect("nonempty")
+            .assert_contains_snippets(&["# HELP kopia_snapshot_timestamp_parse_errors_total"])
+            .assert_contains_lines(&[
+                "# TYPE kopia_snapshot_timestamp_parse_errors_total gauge",
+                "kopia_snapshot_timestamp_parse_errors_total{source=\"alice@hostA:/data\"} 2",
+                "kopia_snapshot_timestamp_parse_errors_total{source=\"bob@hostB:/backup\"} 1",
+            ]);
     }
 }

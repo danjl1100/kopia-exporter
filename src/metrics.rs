@@ -1,3 +1,5 @@
+//! Defines metrics attached to [`KopiaSnapshots`]
+
 use crate::KopiaSnapshots;
 use std::fmt::{self, Display};
 
@@ -100,7 +102,7 @@ impl KopiaSnapshots {
 #[cfg(test)]
 mod tests {
     use crate::{
-        KopiaSnapshots,
+        AssertContains as _, KopiaSnapshots,
         test_util::{single_map, test_snapshot},
     };
 
@@ -111,14 +113,14 @@ mod tests {
         let now = jiff::Timestamp::now();
 
         let (map, _source) = single_map(snapshots);
-        let metrics = map.generate_all_metrics(now);
-
-        assert!(metrics.contains("kopia_snapshots_by_retention"));
-        assert!(metrics.contains("kopia_snapshot_total_size_bytes"));
-        assert!(metrics.contains("kopia_snapshot_age_seconds"));
-        assert!(metrics.contains("kopia_snapshot_errors_total"));
-        assert!(metrics.contains("kopia_snapshot_failed_files_total"));
-        assert!(metrics.contains("kopia_snapshots_total"));
+        map.generate_all_metrics(now).assert_contains_lines(&[
+            "# TYPE kopia_snapshots_by_retention gauge",
+            "# TYPE kopia_snapshot_total_size_bytes gauge",
+            "# TYPE kopia_snapshot_age_seconds gauge",
+            "# TYPE kopia_snapshot_errors_total gauge",
+            "# TYPE kopia_snapshot_failed_files_total gauge",
+            "# TYPE kopia_snapshots_total gauge",
+        ]);
     }
 
     #[test]
