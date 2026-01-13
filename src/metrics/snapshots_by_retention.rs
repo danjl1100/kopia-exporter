@@ -1,8 +1,17 @@
-use crate::{KopiaSnapshots, SourceMap, metrics::MetricLabel};
+//! **Pruned snapshots:** Number of snapshots by retention reason
+
+use crate::{KopiaSnapshots, SourceMap};
 use std::{
     collections::BTreeMap,
     fmt::{self, Display},
 };
+
+crate::define_metric! {
+    name: "kopia_snapshots_by_retention",
+    help: "Number of snapshots by retention reason",
+    category: "Pruned snapshots",
+    type: Gauge,
+}
 
 impl KopiaSnapshots {
     /// Generates Prometheus metrics for snapshots by retention reason.
@@ -11,10 +20,6 @@ impl KopiaSnapshots {
     /// of snapshots for each retention reason (e.g., "latest-1", "daily-7", etc.).
     #[must_use]
     pub(super) fn snapshots_by_retention(&self) -> impl Display {
-        const NAME: &str = "kopia_snapshots_by_retention";
-        const LABEL: MetricLabel =
-            MetricLabel::gauge(NAME, "Number of snapshots by retention reason");
-
         struct Output {
             retention_counts: SourceMap<BTreeMap<String, u32>>,
         }

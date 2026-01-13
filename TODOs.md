@@ -1,5 +1,16 @@
-A recent change added `{source="..."}` to the metrics output, but the tests only verify the output for one `source`.
-To guard against future regressions, the multi-source needs test coverage.
+When writing the top-level crate documentation in `src/lib.rs`, a few metric names were listed that are not actually implemented.
+We want to figure out how best to avoid this kind of in the future, in addition to removing the unimplemented entries.
 
-- [x] add tests for all metrics (where applicable) to verify the output format distinguishes multiple sources (`user_name@host:/path` combos), reporting the correct metric value for each source
-    - avoid large blocks of JSON text for the inputs, instead prefer to use a helper function to create a snapshot, then edit the fields like `src/metrics/last_timestamp.rs`
+Tasks:
+- [ ] propose a few different approaches for ensuring the crate-level docs only list implemented metrics
+
+---
+
+Once an implementation plan is agreed upon:
+- [ ] remove the unimplemented entries:
+    - `kopia_repository_accessible`
+    - `kopia_snapshot_duration_seconds`
+    - `kopia_snapshot_throughput_bytes_per_second`
+    - `kopia_retention_policy_violations_total`
+- [ ] update the documentation per the plan to future-proof against listing unimplemented metric names
+

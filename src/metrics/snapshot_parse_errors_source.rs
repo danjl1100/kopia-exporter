@@ -1,5 +1,14 @@
-use crate::{KopiaSnapshots, metrics::MetricLabel};
+//! **Data quality metrics:** Number of snapshots with unparseable sources
+
+use crate::KopiaSnapshots;
 use std::fmt::{self, Display};
+
+crate::define_metric! {
+    name: "kopia_snapshot_parse_errors_source",
+    help: "Number of snapshots with unparseable sources",
+    category: "Data quality metrics",
+    type: Gauge,
+}
 
 impl KopiaSnapshots {
     /// Generates Prometheus metrics for source parsing errors.
@@ -8,11 +17,7 @@ impl KopiaSnapshots {
     /// of snapshots with unparseable sources (invalid usernames or hostnames).
     /// Only present if there are parsing errors.
     #[must_use]
-    pub(super) fn snapshot_source_parse_errors(&self) -> Option<impl Display> {
-        const NAME: &str = "kopia_snapshot_source_parse_errors";
-        const LABEL: MetricLabel =
-            MetricLabel::gauge(NAME, "Number of snapshots with unparseable sources");
-
+    pub(super) fn snapshot_parse_errors_source(&self) -> Option<impl Display> {
         struct Output<'a> {
             invalid_user_names: &'a std::collections::BTreeMap<String, u32>,
             invalid_hosts: &'a std::collections::BTreeMap<String, u32>,
@@ -71,12 +76,12 @@ mod tests {
 
         let map =
             KopiaSnapshots::new_from_snapshots(vec![snap1, snap2], |_| Ok(())).expect("valid");
-        map.snapshot_source_parse_errors()
+        map.snapshot_parse_errors_source()
             .expect("has errors")
-            .assert_contains_snippets(&["# HELP kopia_snapshot_source_parse_errors"])
+            .assert_contains_snippets(&["# HELP kopia_snapshot_parse_errors_source"])
             .assert_contains_lines(&[
-                "# TYPE kopia_snapshot_source_parse_errors gauge",
-                "kopia_snapshot_source_parse_errors{invalid_user=\"bad@user\"} 2",
+                "# TYPE kopia_snapshot_parse_errors_source gauge",
+                "kopia_snapshot_parse_errors_source{invalid_user=\"bad@user\"} 2",
             ]);
     }
 
@@ -90,10 +95,10 @@ mod tests {
         };
 
         let map = KopiaSnapshots::new_from_snapshots(vec![snap], |_| Ok(())).expect("valid");
-        map.snapshot_source_parse_errors()
+        map.snapshot_parse_errors_source()
             .expect("has errors")
             .assert_contains_lines(&[
-                "kopia_snapshot_source_parse_errors{invalid_host=\"bad:host\"} 1",
+                "kopia_snapshot_parse_errors_source{invalid_host=\"bad:host\"} 1",
             ]);
     }
 
@@ -102,7 +107,7 @@ mod tests {
         let snap = test_snapshot("1", 1000, &["latest-1"]);
 
         let map = KopiaSnapshots::new_from_snapshots(vec![snap], |_| Ok(())).expect("valid");
-        let metrics = map.snapshot_source_parse_errors();
+        let metrics = map.snapshot_parse_errors_source();
 
         assert!(metrics.is_none());
     }
@@ -125,11 +130,11 @@ mod tests {
 
         let map =
             KopiaSnapshots::new_from_snapshots(vec![snap1, snap2], |_| Ok(())).expect("valid");
-        map.snapshot_source_parse_errors()
+        map.snapshot_parse_errors_source()
             .expect("has errors")
             .assert_contains_lines(&[
-                "kopia_snapshot_source_parse_errors{invalid_user=\"user@1\"} 1",
-                "kopia_snapshot_source_parse_errors{invalid_host=\"host:2\"} 1",
+                "kopia_snapshot_parse_errors_source{invalid_user=\"user@1\"} 1",
+                "kopia_snapshot_parse_errors_source{invalid_host=\"host:2\"} 1",
             ]);
     }
 }

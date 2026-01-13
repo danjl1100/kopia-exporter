@@ -1,8 +1,14 @@
-use crate::{
-    KopiaSnapshots,
-    metrics::{MetricLabel, last_snapshots::MetricLastSnapshots},
-};
+//! **Backup completion status:** Ignored errors in latest snapshot
+
+use crate::{KopiaSnapshots, metrics::last_snapshots::MetricLastSnapshots};
 use std::fmt::Display;
+
+crate::define_metric! {
+    name: "kopia_snapshot_errors_ignored_total",
+    help: "Ignored errors in latest snapshot",
+    category: "Backup completion status",
+    type: Gauge,
+}
 
 impl KopiaSnapshots {
     /// Generates Prometheus metrics for ignored errors in the latest snapshot.
@@ -10,10 +16,7 @@ impl KopiaSnapshots {
     /// Returns a string containing Prometheus-formatted metrics showing the total
     /// number of ignored errors in the most recent snapshot. Only present if snapshots list is not empty.
     #[must_use]
-    pub(super) fn snapshot_ignored_errors_total(&self) -> Option<impl Display> {
-        const NAME: &str = "kopia_snapshot_ignored_errors_total";
-        const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Ignored errors in latest snapshot");
-
+    pub(super) fn snapshot_errors_ignored_total(&self) -> Option<impl Display> {
         MetricLastSnapshots::new(self, NAME, LABEL, |v| v.stats.ignored_error_count)
     }
 }
@@ -35,19 +38,19 @@ mod tests {
 
         let (map, _source) = single_map(vec![snap1, snap2]);
 
-        map.snapshot_ignored_errors_total()
+        map.snapshot_errors_ignored_total()
             .expect("nonempty")
-            .assert_contains_snippets(&["# HELP kopia_snapshot_ignored_errors_total"])
+            .assert_contains_snippets(&["# HELP kopia_snapshot_errors_ignored_total"])
             .assert_contains_lines(&[
-                "# TYPE kopia_snapshot_ignored_errors_total gauge",
-                "kopia_snapshot_ignored_errors_total{source=\"user_name@host:/path\"} 3",
+                "# TYPE kopia_snapshot_errors_ignored_total gauge",
+                "kopia_snapshot_errors_ignored_total{source=\"user_name@host:/path\"} 3",
             ]);
     }
 
     #[test]
     fn latest_snapshot_ignored_errors_metrics_empty() {
         let (map, _source) = single_map(vec![]);
-        let metrics = map.snapshot_ignored_errors_total();
+        let metrics = map.snapshot_errors_ignored_total();
 
         assert!(metrics.is_none());
     }
@@ -65,13 +68,13 @@ mod tests {
             ("bob", "hostB", "/backup", vec![snapshot2]),
         ]);
 
-        map.snapshot_ignored_errors_total()
+        map.snapshot_errors_ignored_total()
             .expect("nonempty")
-            .assert_contains_snippets(&["# HELP kopia_snapshot_ignored_errors_total"])
+            .assert_contains_snippets(&["# HELP kopia_snapshot_errors_ignored_total"])
             .assert_contains_lines(&[
-                "# TYPE kopia_snapshot_ignored_errors_total gauge",
-                "kopia_snapshot_ignored_errors_total{source=\"alice@hostA:/data\"} 4",
-                "kopia_snapshot_ignored_errors_total{source=\"bob@hostB:/backup\"} 1",
+                "# TYPE kopia_snapshot_errors_ignored_total gauge",
+                "kopia_snapshot_errors_ignored_total{source=\"alice@hostA:/data\"} 4",
+                "kopia_snapshot_errors_ignored_total{source=\"bob@hostB:/backup\"} 1",
             ]);
     }
 }

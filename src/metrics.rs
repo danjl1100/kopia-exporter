@@ -3,20 +3,55 @@
 use crate::KopiaSnapshots;
 use std::fmt::{self, Display};
 
+/// Defines a metric with its metadata.
+///
+/// This macro generates:
+/// - `NAME` constant with the metric name
+/// - `LABEL` constant with the metric label (`MetricLabel`)
+///
+/// The category is used for documentation purposes but is not stored at runtime.
+///
+/// # Example
+/// ```ignore
+/// define_metric! {
+///     name: "kopia_snapshot_age_seconds",
+///     help: "Age of newest snapshot in seconds",
+///     category: "New snapshot health",
+///     type: Gauge,
+/// }
+/// ```
+#[macro_export]
+macro_rules! define_metric {
+    (
+        name: $name:expr,
+        help: $help:expr,
+        category: $category:expr,
+        type: $ty:ident,
+    ) => {
+        const NAME: &str = $name;
+        const LABEL: $crate::metrics::MetricLabel = $crate::metrics::MetricLabel::__from_macro(
+            NAME,
+            $help,
+            $crate::metrics::MetricType::$ty,
+        );
+    };
+}
+
 // Helpers
 mod last_snapshots;
 
 // Metric definitions
-mod change_bytes;
-mod error_totals;
-mod failed_files;
-mod ignored_errors;
-mod last_age;
-mod last_timestamp;
-mod retention;
-mod snapshots_total;
-mod source_parse_errors;
-mod total_size_bytes;
+pub mod snapshot_age_seconds;
+pub mod snapshot_errors_ignored_total;
+pub mod snapshot_errors_total;
+pub mod snapshot_failed_files_total;
+pub mod snapshot_last_success_timestamp;
+pub mod snapshot_parse_errors_source;
+pub mod snapshot_parse_errors_timestamp_total;
+pub mod snapshot_size_bytes_change;
+pub mod snapshot_size_bytes_total;
+pub mod snapshots_by_retention;
+pub mod snapshots_total;
 
 struct MetricLabel {
     name: &'static str,
@@ -26,12 +61,17 @@ struct MetricLabel {
 enum MetricType {
     Gauge,
 }
+
 impl MetricLabel {
-    const fn gauge(name: &'static str, help_text: &'static str) -> Self {
+    /// Internal constructor for use by the `define_metric!` macro.
+    ///
+    /// This method should not be called directly. Use the `define_metric!` macro instead.
+    #[doc(hidden)]
+    pub const fn __from_macro(name: &'static str, help_text: &'static str, ty: MetricType) -> Self {
         Self {
             name,
             help_text,
-            ty: MetricType::Gauge,
+            ty,
         }
     }
 }
@@ -85,15 +125,15 @@ impl KopiaSnapshots {
 
         Accumulator::new()
             .push(Some(self.snapshots_by_retention()))
-            .push(self.snapshot_total_size_bytes())
+            .push(self.snapshot_size_bytes_total())
             .push(self.snapshot_age_seconds(now))
-            .push(self.snapshot_timestamp_parse_errors_total())
-            .push(self.snapshot_source_parse_errors())
+            .push(self.snapshot_parse_errors_timestamp_total())
+            .push(self.snapshot_parse_errors_source())
             .push(self.snapshot_last_success_timestamp())
             .push(self.snapshot_errors_total())
-            .push(self.snapshot_ignored_errors_total())
+            .push(self.snapshot_errors_ignored_total())
             .push(self.snapshot_failed_files_total())
-            .push(self.snapshot_size_change_bytes())
+            .push(self.snapshot_size_bytes_change())
             .push(Some(self.snapshots_total()))
             .finish()
     }
@@ -115,7 +155,7 @@ mod tests {
         let (map, _source) = single_map(snapshots);
         map.generate_all_metrics(now).assert_contains_lines(&[
             "# TYPE kopia_snapshots_by_retention gauge",
-            "# TYPE kopia_snapshot_total_size_bytes gauge",
+            "# TYPE kopia_snapshot_size_bytes_total gauge",
             "# TYPE kopia_snapshot_age_seconds gauge",
             "# TYPE kopia_snapshot_errors_total gauge",
             "# TYPE kopia_snapshot_failed_files_total gauge",
@@ -169,9 +209,9 @@ mod tests {
             kopia_snapshots_by_retention{source="kopia-system@milton:/persist-home",retention_reason="weekly-3"} 1
             kopia_snapshots_by_retention{source="kopia-system@milton:/persist-home",retention_reason="weekly-4"} 1
 
-            # HELP kopia_snapshot_total_size_bytes Total size of latest snapshot in bytes
-            # TYPE kopia_snapshot_total_size_bytes gauge
-            kopia_snapshot_total_size_bytes{source="kopia-system@milton:/persist-home"} 42154950324
+            # HELP kopia_snapshot_size_bytes_total Total size of latest snapshot in bytes
+            # TYPE kopia_snapshot_size_bytes_total gauge
+            kopia_snapshot_size_bytes_total{source="kopia-system@milton:/persist-home"} 42154950324
 
             # HELP kopia_snapshot_age_seconds Age of newest snapshot in seconds
             # TYPE kopia_snapshot_age_seconds gauge
@@ -185,17 +225,17 @@ mod tests {
             # TYPE kopia_snapshot_errors_total gauge
             kopia_snapshot_errors_total{source="kopia-system@milton:/persist-home"} 0
 
-            # HELP kopia_snapshot_ignored_errors_total Ignored errors in latest snapshot
-            # TYPE kopia_snapshot_ignored_errors_total gauge
-            kopia_snapshot_ignored_errors_total{source="kopia-system@milton:/persist-home"} 0
+            # HELP kopia_snapshot_errors_ignored_total Ignored errors in latest snapshot
+            # TYPE kopia_snapshot_errors_ignored_total gauge
+            kopia_snapshot_errors_ignored_total{source="kopia-system@milton:/persist-home"} 0
 
             # HELP kopia_snapshot_failed_files_total Number of failed files in latest snapshot
             # TYPE kopia_snapshot_failed_files_total gauge
             kopia_snapshot_failed_files_total{source="kopia-system@milton:/persist-home"} 0
 
-            # HELP kopia_snapshot_size_change_bytes Change in size from previous snapshot
-            # TYPE kopia_snapshot_size_change_bytes gauge
-            kopia_snapshot_size_change_bytes{source="kopia-system@milton:/persist-home"} 1116951
+            # HELP kopia_snapshot_size_bytes_change Change in size from previous snapshot
+            # TYPE kopia_snapshot_size_bytes_change gauge
+            kopia_snapshot_size_bytes_change{source="kopia-system@milton:/persist-home"} 1116951
 
             # HELP kopia_snapshots_total Total number of snapshots
             # TYPE kopia_snapshots_total gauge

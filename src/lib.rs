@@ -24,38 +24,8 @@
 //!
 //! ## Metrics
 //!
-//! ### New snapshot health
-//! - `kopia_snapshot_age_seconds` - Age of newest snapshot in seconds (not present if the snapshots list is empty)
-//! - `kopia_snapshot_last_success_timestamp` - Unix timestamp of last successful snapshot (not present if the snapshots list is empty)
-//!
-//! ### Backup completion status
-//! - `kopia_snapshot_errors_total` - Total errors in latest snapshot (not present if the snapshots list is empty)
-//! - `kopia_snapshot_ignored_errors_total` - Ignored errors in latest snapshot (not present if the snapshots list is empty)
-//!
-//! ### Data integrity verification
-//! - `kopia_snapshot_failed_files_total` - Number of failed files in latest snapshot (not present if the snapshots list is empty)
-//!
-//! ### Data quality metrics
-//! - `kopia_snapshot_source_parse_errors` - Number of snapshots with unparseable sources (not present if there are no parse errors)
-//! - `kopia_snapshot_timestamp_parse_errors_total` - Number of snapshots with unparseable timestamps (not present if there are no parse errors)
-//!
-//! ### Repository connectivity
-//! - `kopia_repository_accessible` - 1 if repository is accessible, 0 otherwise
-//!
-//! ### Performance metrics
-//! - `kopia_snapshot_duration_seconds` - Backup duration (endTime - startTime)
-//! - `kopia_snapshot_throughput_bytes_per_second` - Bytes per second throughput
-//!
-//! ### Remaining space
-//! - `kopia_snapshot_total_size_bytes` - Total size of snapshot in bytes (not present if the snapshots list is empty)
-//! - `kopia_snapshot_size_change_bytes` - Change in size from previous snapshot (not present if the snapshots list is empty)
-//!
-//! ### Pruned snapshots
-//! - `kopia_snapshots_total` - Total number of snapshots
-//! - `kopia_snapshots_by_retention` - Number of snapshots by retention reason (labeled)
-//!
-//! ### Pruning health
-//! - `kopia_retention_policy_violations_total` - Snapshots that should have been pruned but weren't
+//! All available Prometheus metrics are defined in the [`metrics`] module.
+//! Each metric is documented in its own module with category and help text.
 
 pub use crate::assert_contains::AssertContains;
 pub use crate::kopia::*;
@@ -63,7 +33,7 @@ use eyre::{Result, eyre};
 use std::time::Duration;
 
 pub mod kopia;
-mod metrics;
+pub mod metrics;
 
 mod assert_contains;
 

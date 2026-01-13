@@ -1,8 +1,14 @@
-use crate::{
-    KopiaSnapshots,
-    metrics::{MetricLabel, last_snapshots::MetricLastSnapshots},
-};
+//! **Remaining space:** Total size of latest snapshot in bytes
+
+use crate::{KopiaSnapshots, metrics::last_snapshots::MetricLastSnapshots};
 use std::fmt::Display;
+
+crate::define_metric! {
+    name: "kopia_snapshot_size_bytes_total",
+    help: "Total size of latest snapshot in bytes",
+    category: "Remaining space",
+    type: Gauge,
+}
 
 impl KopiaSnapshots {
     /// Generates Prometheus metrics for the latest snapshot size.
@@ -10,11 +16,7 @@ impl KopiaSnapshots {
     /// Returns a string containing Prometheus-formatted metrics showing the total
     /// size in bytes of the most recent snapshot. Only present if snapshots list is not empty.
     #[must_use]
-    pub(super) fn snapshot_total_size_bytes(&self) -> Option<impl Display> {
-        const NAME: &str = "kopia_snapshot_total_size_bytes";
-        const LABEL: MetricLabel =
-            MetricLabel::gauge(NAME, "Total size of latest snapshot in bytes");
-
+    pub(super) fn snapshot_size_bytes_total(&self) -> Option<impl Display> {
         MetricLastSnapshots::new(self, NAME, LABEL, |v| v.stats.total_size)
     }
 }
@@ -33,19 +35,19 @@ mod tests {
             test_snapshot("2", 2000, &["latest-1"]),
         ]);
 
-        map.snapshot_total_size_bytes()
+        map.snapshot_size_bytes_total()
             .expect("nonempty")
-            .assert_contains_snippets(&["# HELP kopia_snapshot_total_size_bytes"])
+            .assert_contains_snippets(&["# HELP kopia_snapshot_size_bytes_total"])
             .assert_contains_lines(&[
-                "# TYPE kopia_snapshot_total_size_bytes gauge",
-                "kopia_snapshot_total_size_bytes{source=\"user_name@host:/path\"} 2000",
+                "# TYPE kopia_snapshot_size_bytes_total gauge",
+                "kopia_snapshot_size_bytes_total{source=\"user_name@host:/path\"} 2000",
             ]);
     }
 
     #[test]
     fn latest_snapshot_size_metrics_empty() {
         let (map, _source) = single_map(vec![]);
-        let metrics = map.snapshot_total_size_bytes();
+        let metrics = map.snapshot_size_bytes_total();
 
         assert!(metrics.is_none());
     }
@@ -65,13 +67,13 @@ mod tests {
             ("bob", "hostB", "/backup", snapshots_2),
         ]);
 
-        map.snapshot_total_size_bytes()
+        map.snapshot_size_bytes_total()
             .expect("nonempty")
-            .assert_contains_snippets(&["# HELP kopia_snapshot_total_size_bytes"])
+            .assert_contains_snippets(&["# HELP kopia_snapshot_size_bytes_total"])
             .assert_contains_lines(&[
-                "# TYPE kopia_snapshot_total_size_bytes gauge",
-                "kopia_snapshot_total_size_bytes{source=\"alice@hostA:/data\"} 2500",
-                "kopia_snapshot_total_size_bytes{source=\"bob@hostB:/backup\"} 8000",
+                "# TYPE kopia_snapshot_size_bytes_total gauge",
+                "kopia_snapshot_size_bytes_total{source=\"alice@hostA:/data\"} 2500",
+                "kopia_snapshot_size_bytes_total{source=\"bob@hostB:/backup\"} 8000",
             ]);
     }
 }

@@ -1,8 +1,14 @@
-use crate::{
-    KopiaSnapshots,
-    metrics::{MetricLabel, last_snapshots::MetricLastSnapshots},
-};
+//! **Backup completion status:** Total errors in latest snapshot
+
+use crate::{KopiaSnapshots, metrics::last_snapshots::MetricLastSnapshots};
 use std::fmt::Display;
+
+crate::define_metric! {
+    name: "kopia_snapshot_errors_total",
+    help: "Total errors in latest snapshot",
+    category: "Backup completion status",
+    type: Gauge,
+}
 
 impl KopiaSnapshots {
     /// Generates Prometheus metrics for errors in the latest snapshot.
@@ -11,9 +17,6 @@ impl KopiaSnapshots {
     /// number of errors in the most recent snapshot. Only present if snapshots list is not empty.
     #[must_use]
     pub(super) fn snapshot_errors_total(&self) -> Option<impl Display> {
-        const NAME: &str = "kopia_snapshot_errors_total";
-        const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Total errors in latest snapshot");
-
         MetricLastSnapshots::new(self, NAME, LABEL, |v| v.stats.error_count)
     }
 }

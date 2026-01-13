@@ -1,5 +1,14 @@
-use crate::{KopiaSnapshots, SourceMap, metrics::MetricLabel};
+//! **Remaining space:** Change in size from previous snapshot
+
+use crate::{KopiaSnapshots, SourceMap};
 use std::fmt::{self, Display};
+
+crate::define_metric! {
+    name: "kopia_snapshot_size_bytes_change",
+    help: "Change in size from previous snapshot",
+    category: "Remaining space",
+    type: Gauge,
+}
 
 impl KopiaSnapshots {
     /// Generates Prometheus metrics for the size change from the previous snapshot.
@@ -7,11 +16,7 @@ impl KopiaSnapshots {
     /// Returns a string containing Prometheus-formatted metrics showing the change
     /// in bytes from the previous snapshot. Only present if snapshots list has more than one snapshot.
     #[must_use]
-    pub(super) fn snapshot_size_change_bytes(&self) -> Option<impl Display> {
-        const NAME: &str = "kopia_snapshot_size_change_bytes";
-        const LABEL: MetricLabel =
-            MetricLabel::gauge(NAME, "Change in size from previous snapshot");
-
+    pub(super) fn snapshot_size_bytes_change(&self) -> Option<impl Display> {
         struct SizeChanges(SourceMap<i128>);
         impl Display for SizeChanges {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -59,12 +64,12 @@ mod tests {
             test_snapshot("2", 2500, &["latest-1"]),
         ]);
 
-        map.snapshot_size_change_bytes()
+        map.snapshot_size_bytes_change()
             .expect("nonempty")
-            .assert_contains_snippets(&["# HELP kopia_snapshot_size_change_bytes"])
+            .assert_contains_snippets(&["# HELP kopia_snapshot_size_bytes_change"])
             .assert_contains_lines(&[
-                "# TYPE kopia_snapshot_size_change_bytes gauge",
-                "kopia_snapshot_size_change_bytes{source=\"user_name@host:/path\"} 1500",
+                "# TYPE kopia_snapshot_size_bytes_change gauge",
+                "kopia_snapshot_size_bytes_change{source=\"user_name@host:/path\"} 1500",
             ]);
     }
 
@@ -75,10 +80,10 @@ mod tests {
             test_snapshot("2", 2000, &["latest-1"]),
         ]);
 
-        map.snapshot_size_change_bytes()
+        map.snapshot_size_bytes_change()
             .expect("nonempty")
             .assert_contains_lines(&[
-                "kopia_snapshot_size_change_bytes{source=\"user_name@host:/path\"} -3000",
+                "kopia_snapshot_size_bytes_change{source=\"user_name@host:/path\"} -3000",
             ]);
     }
 
@@ -86,7 +91,7 @@ mod tests {
     fn snapshot_size_change_single_snapshot() {
         let (map, _source) = single_map(vec![test_snapshot("1", 1000, &["latest-1"])]);
 
-        let metrics = map.snapshot_size_change_bytes();
+        let metrics = map.snapshot_size_bytes_change();
         assert!(metrics.is_none());
     }
 
@@ -94,7 +99,7 @@ mod tests {
     fn snapshot_size_change_empty() {
         let (map, _source) = single_map(vec![]);
 
-        let metrics = map.snapshot_size_change_bytes();
+        let metrics = map.snapshot_size_bytes_change();
         assert!(metrics.is_none());
     }
 
@@ -113,13 +118,13 @@ mod tests {
             ("bob", "hostB", "/backup", snapshots_2),
         ]);
 
-        map.snapshot_size_change_bytes()
+        map.snapshot_size_bytes_change()
             .expect("nonempty")
-            .assert_contains_snippets(&["# HELP kopia_snapshot_size_change_bytes"])
+            .assert_contains_snippets(&["# HELP kopia_snapshot_size_bytes_change"])
             .assert_contains_lines(&[
-                "# TYPE kopia_snapshot_size_change_bytes gauge",
-                "kopia_snapshot_size_change_bytes{source=\"alice@hostA:/data\"} 2500",
-                "kopia_snapshot_size_change_bytes{source=\"bob@hostB:/backup\"} -3000",
+                "# TYPE kopia_snapshot_size_bytes_change gauge",
+                "kopia_snapshot_size_bytes_change{source=\"alice@hostA:/data\"} 2500",
+                "kopia_snapshot_size_bytes_change{source=\"bob@hostB:/backup\"} -3000",
             ]);
     }
 }

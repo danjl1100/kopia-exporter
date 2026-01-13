@@ -1,5 +1,14 @@
-use crate::{KopiaSnapshots, Snapshot, SourceMap, metrics::MetricLabel};
+//! **Pruned snapshots:** Total number of snapshots
+
+use crate::{KopiaSnapshots, Snapshot, SourceMap};
 use std::fmt::{self, Display};
+
+crate::define_metric! {
+    name: "kopia_snapshots_total",
+    help: "Total number of snapshots",
+    category: "Pruned snapshots",
+    type: Gauge,
+}
 
 impl KopiaSnapshots {
     /// Generates Prometheus metrics for the total number of snapshots.
@@ -8,9 +17,6 @@ impl KopiaSnapshots {
     /// count of all snapshots in the repository.
     #[must_use]
     pub(super) fn snapshots_total(&self) -> impl Display {
-        const NAME: &str = "kopia_snapshots_total";
-        const LABEL: MetricLabel = MetricLabel::gauge(NAME, "Total number of snapshots");
-
         struct Output<'a> {
             snapshots_map: &'a SourceMap<Vec<Snapshot>>,
         }

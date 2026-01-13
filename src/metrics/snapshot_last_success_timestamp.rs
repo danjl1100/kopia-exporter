@@ -1,5 +1,14 @@
-use crate::{KopiaSnapshots, SourceMap, metrics::MetricLabel};
+//! **New snapshot health:** Unix timestamp of last successful snapshot
+
+use crate::{KopiaSnapshots, SourceMap};
 use std::fmt::{self, Display};
+
+crate::define_metric! {
+    name: "kopia_snapshot_last_success_timestamp",
+    help: "Unix timestamp of last successful snapshot",
+    category: "New snapshot health",
+    type: Gauge,
+}
 
 impl KopiaSnapshots {
     /// Generates Prometheus metrics for the last successful snapshot timestamp.
@@ -8,10 +17,6 @@ impl KopiaSnapshots {
     /// of the most recent snapshot. Only present if snapshots list is not empty.
     #[must_use]
     pub(super) fn snapshot_last_success_timestamp(&self) -> Option<impl Display> {
-        const NAME: &str = "kopia_snapshot_last_success_timestamp";
-        const LABEL: MetricLabel =
-            MetricLabel::gauge(NAME, "Unix timestamp of last successful snapshot");
-
         struct Timestamps(SourceMap<i64>);
         impl Display for Timestamps {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -104,9 +104,9 @@ pub mod assertions {
 # HELP kopia_snapshots_by_retention
 # TYPE kopia_snapshots_by_retention gauge
 kopia_snapshots_by_retention{source="kopia-system@milton:/persist-home",retention_reason="latest-1"} 1
-# HELP kopia_snapshot_total_size_bytes
-# TYPE kopia_snapshot_total_size_bytes gauge
-kopia_snapshot_total_size_bytes{source="kopia-system@milton:/persist-home"} 42154950324
+# HELP kopia_snapshot_size_bytes_total
+# TYPE kopia_snapshot_size_bytes_total gauge
+kopia_snapshot_size_bytes_total{source="kopia-system@milton:/persist-home"} 42154950324
         "#;
         let mut matched = 0;
         for expect_line in EXPECT_LINES.lines() {

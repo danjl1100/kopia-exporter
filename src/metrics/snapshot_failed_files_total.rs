@@ -1,8 +1,14 @@
-use crate::{
-    KopiaSnapshots,
-    metrics::{MetricLabel, last_snapshots::MetricLastSnapshots},
-};
+//! **Data integrity verification:** Number of failed files in latest snapshot
+
+use crate::{KopiaSnapshots, metrics::last_snapshots::MetricLastSnapshots};
 use std::fmt::Display;
+
+crate::define_metric! {
+    name: "kopia_snapshot_failed_files_total",
+    help: "Number of failed files in latest snapshot",
+    category: "Data integrity verification",
+    type: Gauge,
+}
 
 impl KopiaSnapshots {
     /// Generates Prometheus metrics for failed files in the latest snapshot.
@@ -11,10 +17,6 @@ impl KopiaSnapshots {
     /// of failed files in the most recent snapshot. Only present if snapshots list is not empty.
     #[must_use]
     pub(super) fn snapshot_failed_files_total(&self) -> Option<impl Display> {
-        const NAME: &str = "kopia_snapshot_failed_files_total";
-        const LABEL: MetricLabel =
-            MetricLabel::gauge(NAME, "Number of failed files in latest snapshot");
-
         MetricLastSnapshots::new(self, NAME, LABEL, |v| v.root_entry.summ.num_failed)
     }
 }
