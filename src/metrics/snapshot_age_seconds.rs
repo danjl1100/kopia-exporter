@@ -3,36 +3,46 @@
 use crate::{KopiaSnapshots, SourceMap};
 use std::fmt::{self, Display};
 
-crate::define_metric! {
-    name: "kopia_snapshot_age_seconds",
-    help: "Age of newest snapshot in seconds",
-    category: "New snapshot health",
-    type: Gauge,
+macro_rules! define_metric_new {
+    (
+        $(#[$meta:meta])*
+        $vis:vis fn $name:ident($($tt:tt)*) -> $return:ty $block:block
+    ) => {
+        $(#[$meta])*
+        $vis fn $name($($tt::tt)*) -> $return $block
+    };
 }
 
 impl KopiaSnapshots {
-    /// Generates Prometheus metrics for the age of the latest snapshot.
-    ///
-    /// Returns a string containing Prometheus-formatted metrics showing the age
-    /// in seconds of the most recent snapshot from its end time. Only present if snapshots list is not empty.
-    #[must_use]
-    pub(super) fn snapshot_age_seconds(&self, now: jiff::Timestamp) -> Option<impl Display> {
-        struct Output {
-            age_seconds_map: SourceMap<i64>,
+    define_metric_new! {
+        /// Generates Prometheus metrics for the age of the latest snapshot.
+        ///
+        /// Returns a string containing Prometheus-formatted metrics showing the age
+        /// in seconds of the most recent snapshot from its end time. Only present if snapshots list is not empty.
+        #[must_use]
+        pub(super) fn snapshot_age_seconds(&self, now: jiff::Timestamp) -> Option<impl Display> {
+            SnapshotAgeSeconds::new(self, now)
         }
-        impl Display for Output {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                let Self { age_seconds_map } = self;
-                writeln!(f, "{LABEL}")?;
-                for (source, age_seconds) in age_seconds_map {
-                    writeln!(f, "{NAME}{{source={source:?}}} {age_seconds}")?;
-                }
+    }
+}
 
-                Ok(())
-            }
+struct SnapshotAgeSeconds {
+    age_seconds_map: SourceMap<i64>,
+}
+impl Display for SnapshotAgeSeconds {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self { age_seconds_map } = self;
+        writeln!(f, "{LABEL}")?;
+        for (source, age_seconds) in age_seconds_map {
+            writeln!(f, "{NAME}{{source={source:?}}} {age_seconds}")?;
         }
 
-        let age_seconds_map: SourceMap<_> = self
+        Ok(())
+    }
+}
+impl SnapshotAgeSeconds {
+    fn new(ks: &KopiaSnapshots, now: jiff::Timestamp) -> Option<Self> {
+        let age_seconds_map: SourceMap<_> = ks
             .snapshots_map
             .iter()
             .filter_map(|(source, snapshots)| {
