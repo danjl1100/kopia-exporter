@@ -1,35 +1,21 @@
 //! **New snapshot health:** Unix timestamp of last successful snapshot
 
-use crate::{KopiaSnapshots, SourceMap};
-use std::fmt::{self, Display};
+use crate::{KopiaSnapshots, SourceMap, metrics::DisplayMetric};
+use std::fmt::{self};
 
-crate::define_metric! {
-    name: "kopia_snapshot_last_success_timestamp",
-    help: "Unix timestamp of last successful snapshot",
-    category: "New snapshot health",
-    type: Gauge,
-}
-
-impl KopiaSnapshots {
-    /// Generates Prometheus metrics for the last successful snapshot timestamp.
-    ///
-    /// Returns a string containing Prometheus-formatted metrics showing the Unix timestamp
-    /// of the most recent snapshot. Only present if snapshots list is not empty.
-    #[must_use]
-    pub(super) fn snapshot_last_success_timestamp(&self) -> Option<impl Display> {
-        struct Timestamps(SourceMap<i64>);
-        impl Display for Timestamps {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                let Self(timestamps) = self;
-                writeln!(f, "{LABEL}")?;
-                for (source, timestamp) in timestamps {
-                    writeln!(f, "{NAME}{{source={source:?}}} {timestamp}")?;
-                }
-                Ok(())
-            }
+pub(super) struct SnapshotLastSuccessTimestamp(SourceMap<i64>);
+impl DisplayMetric for SnapshotLastSuccessTimestamp {
+    fn fmt(&self, name: &str, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self(timestamps) = self;
+        for (source, timestamp) in timestamps {
+            writeln!(f, "{name}{{source={source:?}}} {timestamp}")?;
         }
-
-        let timestamps: SourceMap<i64> = self
+        Ok(())
+    }
+}
+impl SnapshotLastSuccessTimestamp {
+    pub(super) fn new(ks: &KopiaSnapshots) -> Option<Self> {
+        let timestamps: SourceMap<i64> = ks
             .snapshots_map
             .iter()
             .filter_map(|(source, snapshots)| {
@@ -39,7 +25,7 @@ impl KopiaSnapshots {
             })
             .collect();
 
-        timestamps.map_nonempty(Timestamps)
+        timestamps.map_nonempty(Self)
     }
 }
 
@@ -65,7 +51,7 @@ mod tests {
             .expect("valid timestamp")
             .as_second();
 
-        map.snapshot_last_success_timestamp()
+        map.kopia_snapshot_last_success_timestamp()
             .expect("nonempty")
             .assert_contains_snippets(&["# HELP kopia_snapshot_last_success_timestamp"])
             .assert_contains_lines(&[
@@ -96,7 +82,7 @@ mod tests {
             .expect("valid timestamp")
             .as_second();
 
-        map.snapshot_last_success_timestamp()
+        map.kopia_snapshot_last_success_timestamp()
             .expect("nonempty")
             .assert_contains_snippets(&["# HELP kopia_snapshot_last_success_timestamp"])
             .assert_contains_lines(&[
@@ -109,7 +95,7 @@ mod tests {
     #[test]
     fn snapshot_last_success_timestamp_metrics_empty() {
         let (map, _source) = single_map(vec![]);
-        let metrics = map.snapshot_last_success_timestamp();
+        let metrics = map.kopia_snapshot_last_success_timestamp();
 
         assert!(metrics.is_none());
     }
@@ -120,7 +106,7 @@ mod tests {
         snapshot.end_time = "invalid-time".to_string();
 
         let (map, _source) = single_map(vec![snapshot]);
-        let metrics = map.snapshot_last_success_timestamp();
+        let metrics = map.kopia_snapshot_last_success_timestamp();
 
         assert!(metrics.is_none());
     }

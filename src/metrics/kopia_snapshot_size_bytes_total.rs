@@ -1,26 +1,3 @@
-//! **Remaining space:** Total size of latest snapshot in bytes
-
-use crate::{KopiaSnapshots, metrics::last_snapshots::MetricLastSnapshots};
-use std::fmt::Display;
-
-crate::define_metric! {
-    name: "kopia_snapshot_size_bytes_total",
-    help: "Total size of latest snapshot in bytes",
-    category: "Remaining space",
-    type: Gauge,
-}
-
-impl KopiaSnapshots {
-    /// Generates Prometheus metrics for the latest snapshot size.
-    ///
-    /// Returns a string containing Prometheus-formatted metrics showing the total
-    /// size in bytes of the most recent snapshot. Only present if snapshots list is not empty.
-    #[must_use]
-    pub(super) fn snapshot_size_bytes_total(&self) -> Option<impl Display> {
-        MetricLastSnapshots::new(self, NAME, LABEL, |v| v.stats.total_size)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -35,7 +12,7 @@ mod tests {
             test_snapshot("2", 2000, &["latest-1"]),
         ]);
 
-        map.snapshot_size_bytes_total()
+        map.kopia_snapshot_size_bytes_total()
             .expect("nonempty")
             .assert_contains_snippets(&["# HELP kopia_snapshot_size_bytes_total"])
             .assert_contains_lines(&[
@@ -47,7 +24,7 @@ mod tests {
     #[test]
     fn latest_snapshot_size_metrics_empty() {
         let (map, _source) = single_map(vec![]);
-        let metrics = map.snapshot_size_bytes_total();
+        let metrics = map.kopia_snapshot_size_bytes_total();
 
         assert!(metrics.is_none());
     }
@@ -67,7 +44,7 @@ mod tests {
             ("bob", "hostB", "/backup", snapshots_2),
         ]);
 
-        map.snapshot_size_bytes_total()
+        map.kopia_snapshot_size_bytes_total()
             .expect("nonempty")
             .assert_contains_snippets(&["# HELP kopia_snapshot_size_bytes_total"])
             .assert_contains_lines(&[

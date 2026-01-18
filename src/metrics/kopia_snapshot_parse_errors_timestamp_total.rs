@@ -1,35 +1,20 @@
-//! **Data quality metrics:** Number of snapshots with unparseable timestamps
+use crate::{KopiaSnapshots, SourceMap, metrics::DisplayMetric};
+use std::fmt;
 
-use crate::{KopiaSnapshots, SourceMap};
-use std::fmt::{self, Display};
-
-crate::define_metric! {
-    name: "kopia_snapshot_parse_errors_timestamp_total",
-    help: "Number of snapshots with unparseable timestamps",
-    category: "Data quality metrics",
-    type: Gauge,
+pub(super) struct ParseErrorCountsTimestamp(SourceMap<u32>);
+impl DisplayMetric for ParseErrorCountsTimestamp {
+    fn fmt(&self, name: &str, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self(error_counts) = self;
+        for (source, error_count) in error_counts {
+            writeln!(f, "{name}{{source={source:?}}} {error_count}")?;
+        }
+        Ok(())
+    }
 }
 
-impl KopiaSnapshots {
-    /// Generates Prometheus metrics for timestamp parsing errors.
-    ///
-    /// Returns a string containing Prometheus-formatted metrics showing the count
-    /// of snapshots with unparseable timestamps. Only present if there are parsing errors.
-    #[must_use]
-    pub(super) fn snapshot_parse_errors_timestamp_total(&self) -> Option<impl Display> {
-        struct ErrorCounts(SourceMap<u32>);
-        impl Display for ErrorCounts {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                let Self(error_counts) = self;
-                writeln!(f, "{LABEL}")?;
-                for (source, error_count) in error_counts {
-                    writeln!(f, "{NAME}{{source={source:?}}} {error_count}")?;
-                }
-                Ok(())
-            }
-        }
-
-        let error_counts: SourceMap<u32> = self
+impl ParseErrorCountsTimestamp {
+    pub fn new(ks: &KopiaSnapshots) -> Option<Self> {
+        let error_counts: SourceMap<u32> = ks
             .snapshots_map
             .iter()
             .filter_map(|(source, snapshots)| {
@@ -42,7 +27,7 @@ impl KopiaSnapshots {
             })
             .collect();
 
-        error_counts.map_nonempty(ErrorCounts)
+        error_counts.map_nonempty(Self)
     }
 }
 
@@ -69,7 +54,7 @@ mod tests {
             ("bob", "hostB", "/backup", vec![snapshot3]),
         ]);
 
-        map.snapshot_parse_errors_timestamp_total()
+        map.kopia_snapshot_parse_errors_timestamp_total()
             .expect("nonempty")
             .assert_contains_snippets(&["# HELP kopia_snapshot_parse_errors_timestamp_total"])
             .assert_contains_lines(&[

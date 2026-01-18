@@ -1,4 +1,4 @@
-use crate::{KopiaSnapshots, Snapshot, SourceMap, SourceStr, metrics::MetricLabel};
+use crate::{KopiaSnapshots, Snapshot, SourceMap, SourceStr, metrics::DisplayMetric};
 use std::fmt::{self, Display};
 
 #[derive(Clone, Copy)]
@@ -20,8 +20,6 @@ impl<'a> LastSnapshots<'a> {
 
 pub struct MetricLastSnapshots<'a, F> {
     last_snapshots: LastSnapshots<'a>,
-    name: &'static str,
-    label: MetricLabel,
     stat_fn: F,
 }
 impl<'a, F, T> MetricLastSnapshots<'a, F>
@@ -29,34 +27,24 @@ where
     F: Fn(&Snapshot) -> T,
     T: Display,
 {
-    pub fn new(
-        ks: &'a KopiaSnapshots,
-        name: &'static str,
-        label: MetricLabel,
-        stat_fn: F,
-    ) -> Option<Self> {
+    pub fn new(ks: &'a KopiaSnapshots, stat_fn: F) -> Option<Self> {
         let last_snapshots = LastSnapshots::new(&ks.snapshots_map)?;
         Some(Self {
             last_snapshots,
-            name,
-            label,
             stat_fn,
         })
     }
 }
-impl<F, T> Display for MetricLastSnapshots<'_, F>
+impl<F, T> DisplayMetric for MetricLastSnapshots<'_, F>
 where
     F: Fn(&Snapshot) -> T,
     T: Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, name: &str, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self {
             last_snapshots,
-            name,
-            label,
             stat_fn,
         } = self;
-        writeln!(f, "{label}")?;
         for (source, last) in last_snapshots.iter() {
             let stat = stat_fn(last);
             writeln!(f, "{name}{{source={source:?}}} {stat}")?;

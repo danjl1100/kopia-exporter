@@ -1,46 +1,27 @@
-//! **Pruned snapshots:** Number of snapshots by retention reason
+use crate::{KopiaSnapshots, SourceMap, metrics::DisplayMetric};
+use std::{collections::BTreeMap, fmt};
 
-use crate::{KopiaSnapshots, SourceMap};
-use std::{
-    collections::BTreeMap,
-    fmt::{self, Display},
-};
-
-crate::define_metric! {
-    name: "kopia_snapshots_by_retention",
-    help: "Number of snapshots by retention reason",
-    category: "Pruned snapshots",
-    type: Gauge,
+pub(super) struct SnapshotsByRetention {
+    retention_counts: SourceMap<BTreeMap<String, u32>>,
 }
-
-impl KopiaSnapshots {
-    /// Generates Prometheus metrics for snapshots by retention reason.
-    ///
-    /// Returns a string containing Prometheus-formatted metrics showing the count
-    /// of snapshots for each retention reason (e.g., "latest-1", "daily-7", etc.).
-    #[must_use]
-    pub(super) fn snapshots_by_retention(&self) -> impl Display {
-        struct Output {
-            retention_counts: SourceMap<BTreeMap<String, u32>>,
-        }
-        impl Display for Output {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                let Self { retention_counts } = self;
-                writeln!(f, "{LABEL}")?;
-                for (source, reason_counts) in retention_counts {
-                    for (reason, count) in reason_counts {
-                        writeln!(
-                            f,
-                            "{NAME}{{source={source:?},retention_reason={reason:?}}} {count}"
-                        )?;
-                    }
-                }
-                Ok(())
+impl DisplayMetric for SnapshotsByRetention {
+    fn fmt(&self, name: &str, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self { retention_counts } = self;
+        for (source, reason_counts) in retention_counts {
+            for (reason, count) in reason_counts {
+                writeln!(
+                    f,
+                    "{name}{{source={source:?},retention_reason={reason:?}}} {count}"
+                )?;
             }
         }
-
-        let retention_counts = self.get_retention_counts();
-        Output { retention_counts }
+        Ok(())
+    }
+}
+impl SnapshotsByRetention {
+    pub fn new(ks: &KopiaSnapshots) -> Self {
+        let retention_counts = ks.get_retention_counts();
+        SnapshotsByRetention { retention_counts }
     }
 }
 
@@ -58,7 +39,7 @@ mod tests {
             test_snapshot("2", 2000, &["daily-2"]),
         ]);
 
-        map.snapshots_by_retention()
+        map.kopia_snapshots_by_retention()
             .assert_contains_snippets(&["# HELP kopia_snapshots_by_retention"])
             .assert_contains_lines(&[
                 "# TYPE kopia_snapshots_by_retention gauge",
@@ -84,7 +65,7 @@ mod tests {
             ("bob", "hostB", "/backup", snapshots_2),
         ]);
 
-        map.snapshots_by_retention()
+        map.kopia_snapshots_by_retention()
             .assert_contains_snippets(&["# HELP kopia_snapshots_by_retention"])
             .assert_contains_lines(&[
                 "# TYPE kopia_snapshots_by_retention gauge",

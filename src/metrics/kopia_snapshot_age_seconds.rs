@@ -1,47 +1,20 @@
-//! **New snapshot health:** Age of newest snapshot in seconds
+use crate::{KopiaSnapshots, SourceMap, metrics::DisplayMetric};
+use std::fmt::{self};
 
-use crate::{KopiaSnapshots, SourceMap};
-use std::fmt::{self, Display};
-
-macro_rules! define_metric_new {
-    (
-        $(#[$meta:meta])*
-        $vis:vis fn $name:ident($($tt:tt)*) -> $return:ty $block:block
-    ) => {
-        $(#[$meta])*
-        $vis fn $name($($tt::tt)*) -> $return $block
-    };
-}
-
-impl KopiaSnapshots {
-    define_metric_new! {
-        /// Generates Prometheus metrics for the age of the latest snapshot.
-        ///
-        /// Returns a string containing Prometheus-formatted metrics showing the age
-        /// in seconds of the most recent snapshot from its end time. Only present if snapshots list is not empty.
-        #[must_use]
-        pub(super) fn snapshot_age_seconds(&self, now: jiff::Timestamp) -> Option<impl Display> {
-            SnapshotAgeSeconds::new(self, now)
-        }
-    }
-}
-
-struct SnapshotAgeSeconds {
-    age_seconds_map: SourceMap<i64>,
-}
-impl Display for SnapshotAgeSeconds {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { age_seconds_map } = self;
-        writeln!(f, "{LABEL}")?;
+pub(super) struct SnapshotAgeSeconds(SourceMap<i64>);
+impl DisplayMetric for SnapshotAgeSeconds {
+    fn fmt(&self, name: &str, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self(age_seconds_map) = self;
         for (source, age_seconds) in age_seconds_map {
-            writeln!(f, "{NAME}{{source={source:?}}} {age_seconds}")?;
+            writeln!(f, "{name}{{source={source:?}}} {age_seconds}")?;
         }
 
         Ok(())
     }
 }
 impl SnapshotAgeSeconds {
-    fn new(ks: &KopiaSnapshots, now: jiff::Timestamp) -> Option<Self> {
+    /// Implementation for [`KopiaSnapshots::kopia_snapshot_age_seconds`]
+    pub fn new(ks: &KopiaSnapshots, now: jiff::Timestamp) -> Option<Self> {
         let age_seconds_map: SourceMap<_> = ks
             .snapshots_map
             .iter()
@@ -60,11 +33,7 @@ impl SnapshotAgeSeconds {
                 Some((source.clone(), age_seconds))
             })
             .collect();
-        if age_seconds_map.is_empty() {
-            None
-        } else {
-            Some(Output { age_seconds_map })
-        }
+        age_seconds_map.map_nonempty(Self)
     }
 }
 
@@ -89,7 +58,7 @@ mod tests {
 
             let (map, _source) = single_map(vec![snapshot]);
 
-            map.snapshot_age_seconds(now)
+            map.kopia_snapshot_age_seconds(now)
                 .expect("nonempty")
                 .assert_contains_snippets(&["# HELP kopia_snapshot_age_seconds"])
                 .assert_contains_lines(&[
@@ -105,7 +74,7 @@ mod tests {
     fn snapshot_age_metrics_empty() {
         let (map, _source) = single_map(vec![]);
         let now = jiff::Timestamp::now();
-        let metrics = map.snapshot_age_seconds(now);
+        let metrics = map.kopia_snapshot_age_seconds(now);
 
         assert!(metrics.is_none());
     }
@@ -119,10 +88,10 @@ mod tests {
 
         let (map, _source) = single_map(vec![snapshot]);
 
-        let age_metrics = map.snapshot_age_seconds(now);
+        let age_metrics = map.kopia_snapshot_age_seconds(now);
         assert!(age_metrics.is_none());
 
-        map.snapshot_parse_errors_timestamp_total()
+        map.kopia_snapshot_parse_errors_timestamp_total()
             .expect("nonempty")
             .assert_contains_lines(&[
                 "kopia_snapshot_parse_errors_timestamp_total{source=\"user_name@host:/path\"} 1",
@@ -148,7 +117,7 @@ mod tests {
             ("bob", "hostB", "/backup", vec![snapshot2]),
         ]);
 
-        map.snapshot_age_seconds(now)
+        map.kopia_snapshot_age_seconds(now)
             .expect("nonempty")
             .assert_contains_snippets(&["# HELP kopia_snapshot_age_seconds"])
             .assert_contains_lines(&[

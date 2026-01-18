@@ -1,26 +1,5 @@
 //! **Backup completion status:** Total errors in latest snapshot
 
-use crate::{KopiaSnapshots, metrics::last_snapshots::MetricLastSnapshots};
-use std::fmt::Display;
-
-crate::define_metric! {
-    name: "kopia_snapshot_errors_total",
-    help: "Total errors in latest snapshot",
-    category: "Backup completion status",
-    type: Gauge,
-}
-
-impl KopiaSnapshots {
-    /// Generates Prometheus metrics for errors in the latest snapshot.
-    ///
-    /// Returns a string containing Prometheus-formatted metrics showing the total
-    /// number of errors in the most recent snapshot. Only present if snapshots list is not empty.
-    #[must_use]
-    pub(super) fn snapshot_errors_total(&self) -> Option<impl Display> {
-        MetricLastSnapshots::new(self, NAME, LABEL, |v| v.stats.error_count)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -34,7 +13,7 @@ mod tests {
         snapshot.stats.error_count = 5;
 
         let (map, _source) = single_map(vec![snapshot]);
-        map.snapshot_errors_total()
+        map.kopia_snapshot_errors_total()
             .expect("nonempty")
             .assert_contains_snippets(&["# HELP kopia_snapshot_errors_total"])
             .assert_contains_lines(&[
@@ -48,7 +27,7 @@ mod tests {
         let snapshot = test_snapshot("1", 1000, &["latest-1"]);
 
         let (map, _source) = single_map(vec![snapshot]);
-        map.snapshot_errors_total()
+        map.kopia_snapshot_errors_total()
             .expect("nonempty")
             .assert_contains_lines(&[
                 "kopia_snapshot_errors_total{source=\"user_name@host:/path\"} 0",
@@ -59,7 +38,7 @@ mod tests {
     fn snapshot_errors_metrics_empty() {
         let snapshots = vec![];
         let (map, _source) = single_map(snapshots);
-        let metrics = map.snapshot_errors_total();
+        let metrics = map.kopia_snapshot_errors_total();
 
         assert!(metrics.is_none());
     }
@@ -77,7 +56,7 @@ mod tests {
             ("bob", "hostB", "/backup", vec![snapshot2]),
         ]);
 
-        map.snapshot_errors_total()
+        map.kopia_snapshot_errors_total()
             .expect("nonempty")
             .assert_contains_snippets(&["# HELP kopia_snapshot_errors_total"])
             .assert_contains_lines(&[

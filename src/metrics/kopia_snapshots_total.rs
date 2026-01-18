@@ -1,39 +1,24 @@
-//! **Pruned snapshots:** Total number of snapshots
+use crate::{KopiaSnapshots, Snapshot, SourceMap, metrics::DisplayMetric};
+use std::fmt;
 
-use crate::{KopiaSnapshots, Snapshot, SourceMap};
-use std::fmt::{self, Display};
-
-crate::define_metric! {
-    name: "kopia_snapshots_total",
-    help: "Total number of snapshots",
-    category: "Pruned snapshots",
-    type: Gauge,
+pub(super) struct SnapshotsTotal<'a> {
+    snapshots_map: &'a SourceMap<Vec<Snapshot>>,
+}
+impl DisplayMetric for SnapshotsTotal<'_> {
+    fn fmt(&self, name: &str, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self { snapshots_map } = *self;
+        for (source, snapshots) in snapshots_map {
+            let count = snapshots.len();
+            writeln!(f, "{name}{{source={source:?}}} {count}")?;
+        }
+        Ok(())
+    }
 }
 
-impl KopiaSnapshots {
-    /// Generates Prometheus metrics for the total number of snapshots.
-    ///
-    /// Returns a string containing Prometheus-formatted metrics showing the total
-    /// count of all snapshots in the repository.
-    #[must_use]
-    pub(super) fn snapshots_total(&self) -> impl Display {
-        struct Output<'a> {
-            snapshots_map: &'a SourceMap<Vec<Snapshot>>,
-        }
-        impl Display for Output<'_> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                let Self { snapshots_map } = *self;
-                writeln!(f, "{LABEL}")?;
-                for (source, snapshots) in snapshots_map {
-                    let count = snapshots.len();
-                    writeln!(f, "{NAME}{{source={source:?}}} {count}")?;
-                }
-                Ok(())
-            }
-        }
-
-        let Self { snapshots_map, .. } = self;
-        Output { snapshots_map }
+impl<'a> SnapshotsTotal<'a> {
+    pub fn new(ks: &'a KopiaSnapshots) -> Self {
+        let KopiaSnapshots { snapshots_map, .. } = ks;
+        Self { snapshots_map }
     }
 }
 
@@ -53,7 +38,7 @@ mod tests {
         ];
 
         let (map, _source) = single_map(snapshots);
-        map.snapshots_total()
+        map.kopia_snapshots_total()
             .assert_contains_snippets(&["# HELP kopia_snapshots_total"])
             .assert_contains_lines(&[
                 "# TYPE kopia_snapshots_total gauge",
@@ -65,7 +50,7 @@ mod tests {
     fn snapshots_total_metrics_empty() {
         let snapshots = vec![];
         let (map, _source) = single_map(snapshots);
-        let metrics = map.snapshots_total().to_string();
+        let metrics = map.kopia_snapshots_total().to_string();
 
         insta::assert_snapshot!(metrics, @r"
         # HELP kopia_snapshots_total Total number of snapshots
@@ -77,7 +62,7 @@ mod tests {
     fn snapshots_total_metrics_single() {
         let snapshots = vec![test_snapshot("1", 1000, &["latest-1"])];
         let (map, _source) = single_map(snapshots);
-        map.snapshots_total()
+        map.kopia_snapshots_total()
             .assert_contains_lines(&["kopia_snapshots_total{source=\"user_name@host:/path\"} 1"]);
     }
 
@@ -97,7 +82,7 @@ mod tests {
             ("bob", "hostB", "/backup", snapshots_2),
         ]);
 
-        map.snapshots_total()
+        map.kopia_snapshots_total()
             .assert_contains_snippets(&["# HELP kopia_snapshots_total"])
             .assert_contains_lines(&[
                 "# TYPE kopia_snapshots_total gauge",

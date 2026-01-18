@@ -1,26 +1,3 @@
-//! **Data integrity verification:** Number of failed files in latest snapshot
-
-use crate::{KopiaSnapshots, metrics::last_snapshots::MetricLastSnapshots};
-use std::fmt::Display;
-
-crate::define_metric! {
-    name: "kopia_snapshot_failed_files_total",
-    help: "Number of failed files in latest snapshot",
-    category: "Data integrity verification",
-    type: Gauge,
-}
-
-impl KopiaSnapshots {
-    /// Generates Prometheus metrics for failed files in the latest snapshot.
-    ///
-    /// Returns a string containing Prometheus-formatted metrics showing the number
-    /// of failed files in the most recent snapshot. Only present if snapshots list is not empty.
-    #[must_use]
-    pub(super) fn snapshot_failed_files_total(&self) -> Option<impl Display> {
-        MetricLastSnapshots::new(self, NAME, LABEL, |v| v.root_entry.summ.num_failed)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -34,7 +11,7 @@ mod tests {
         snapshot.root_entry.summ.num_failed = 3;
 
         let (map, _source) = single_map(vec![snapshot]);
-        map.snapshot_failed_files_total()
+        map.kopia_snapshot_failed_files_total()
             .expect("nonempty")
             .assert_contains_snippets(&["# HELP kopia_snapshot_failed_files_total"])
             .assert_contains_lines(&[
@@ -48,7 +25,7 @@ mod tests {
         let snapshot = test_snapshot("1", 1000, &["latest-1"]);
 
         let (map, _source) = single_map(vec![snapshot]);
-        map.snapshot_failed_files_total()
+        map.kopia_snapshot_failed_files_total()
             .expect("nonempty")
             .assert_contains_lines(&[
                 "kopia_snapshot_failed_files_total{source=\"user_name@host:/path\"} 0",
@@ -59,7 +36,7 @@ mod tests {
     fn snapshot_failed_files_metrics_empty() {
         let snapshots = vec![];
         let (map, _source) = &single_map(snapshots);
-        let metrics = map.snapshot_failed_files_total();
+        let metrics = map.kopia_snapshot_failed_files_total();
 
         assert!(metrics.is_none());
     }
@@ -77,7 +54,7 @@ mod tests {
             ("bob", "hostB", "/backup", vec![snapshot2]),
         ]);
 
-        map.snapshot_failed_files_total()
+        map.kopia_snapshot_failed_files_total()
             .expect("nonempty")
             .assert_contains_snippets(&["# HELP kopia_snapshot_failed_files_total"])
             .assert_contains_lines(&[

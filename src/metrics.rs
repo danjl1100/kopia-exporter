@@ -3,62 +3,259 @@
 use crate::KopiaSnapshots;
 use std::fmt::{self, Display};
 
-/// Defines a metric with its metadata.
+/// Label and data for a specific metric
 ///
-/// This macro generates:
-/// - `NAME` constant with the metric name
-/// - `LABEL` constant with the metric label (`MetricLabel`)
-///
-/// The category is used for documentation purposes but is not stored at runtime.
-///
-/// # Example
-/// ```ignore
-/// define_metric! {
-///     name: "kopia_snapshot_age_seconds",
-///     help: "Age of newest snapshot in seconds",
-///     category: "New snapshot health",
-///     type: Gauge,
-/// }
-/// ```
-#[macro_export]
-macro_rules! define_metric {
+/// See associated constants for a list of implemented metric types
+pub struct Metrics<T> {
+    label: MetricLabel,
+    inner: T,
+}
+impl<T> std::fmt::Display for Metrics<T>
+where
+    T: DisplayMetric,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self { label, inner } = self;
+
+        // format label
+        writeln!(f, "{label}")?;
+
+        // format inner
+        let name = label.name();
+        inner.fmt(name, f)
+    }
+}
+/// [`std::fmt::Display`], but with an additional supplied metric name
+trait DisplayMetric {
+    fn fmt(&self, name: &str, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+}
+
+/// Helper to construct [`Metrics`] from various disjoint types
+trait AttachMetricLabel {
+    type Output;
+    fn attach_metric_label(self, label: MetricLabel) -> Self::Output;
+}
+// NOTE: `(T,)` required to disambiguate with the blanket impl covering `T = Option<...>`
+impl<T> AttachMetricLabel for (T,) {
+    type Output = Metrics<T>;
+    fn attach_metric_label(self, label: MetricLabel) -> Self::Output {
+        let (inner,) = self;
+        Metrics { label, inner }
+    }
+}
+impl<T> AttachMetricLabel for Option<T> {
+    type Output = Option<Metrics<T>>;
+    fn attach_metric_label(self, label: MetricLabel) -> Self::Output {
+        self.map(|inner| (inner,).attach_metric_label(label))
+    }
+}
+
+macro_rules! define_metric_categories {
     (
-        name: $name:expr,
-        help: $help:expr,
-        category: $category:expr,
-        type: $ty:ident,
+        // Repeat - categories
+        $(
+            // Category help text, as a doc comment: `/// xxxxxxx`
+            #[doc = $category:literal]
+            // Category identifier
+            $category_ident:ident
+            :
+            impl $Container:ident {
+                // Repeat - metrics
+                $(
+                    // First line of doc text - used for the `# HELP` text
+                    #[doc = $help:literal]
+                    $(#[$meta:meta])*
+                    $vis:vis fn $name:ident<$ty:ident>($($tt:tt)*) -> $return_ty:ty $block:block
+                )+
+            }
+        )+
     ) => {
-        const NAME: &str = $name;
-        const LABEL: $crate::metrics::MetricLabel = $crate::metrics::MetricLabel::__from_macro(
-            NAME,
-            $help,
-            $crate::metrics::MetricType::$ty,
-        );
+        $(
+            // Define category (docs only) and metrics (docs and provide the MetricLabel)
+            impl<T> Metrics<T> {
+                /// **CATEGORY**:
+                #[doc = $category]
+                ///
+                /// ---
+                /// Individual metrics are listed in the group below
+                pub const $category_ident: () = ();
+
+                $(
+                    #[doc = concat!("Metric: `", stringify!($name), "`")]
+                    ///
+                    #[doc = concat!("(", stringify!($ty), ")")]
+                    #[doc = concat!($help)]
+                    #[doc = concat!("([implementation](`", stringify!($Container), "::", stringify!($name), "`))")]
+                    #[expect(non_upper_case_globals)]
+                    pub const $name: $crate::metrics::MetricLabel =
+                        $crate::metrics::MetricLabel::__from_macro(
+                            stringify!($name),
+                            $help.trim_ascii_start(),
+                            $crate::metrics::MetricType::$ty,
+                        );
+                )+
+            }
+
+            // Import each metric implementation module, not exported
+            //
+            // Items in the implementation module are automatically imported
+            // for use in each Container function, see below
+            $(
+                mod $name;
+            )+
+
+            // Define methods on $Container for each metric
+            impl $Container {
+                $(
+                    #[doc = concat!("Metric `", stringify!($name), "` - ", $help)]
+                    ///
+                    #[doc = concat!("Category: [", $category, "](Metrics::", stringify!($category_ident), ")")]
+                    ///
+                    /// ---
+                    ///
+                    $(#[$meta])*
+                    #[must_use]
+                    $vis fn $name($($tt)*) -> $return_ty {
+                        #[allow(unused_imports)]
+                        use $name::*;
+
+                        let inner = $block;
+                        inner.attach_metric_label(
+                            Metrics::<()>::$name,
+                        )
+                    }
+                )+
+            }
+        )+
     };
+}
+
+define_metric_categories! {
+    /// New snapshot health
+    NEW_SNAPSHOT_HEALTH: impl KopiaSnapshots {
+        /// Age of newest snapshot in seconds
+        ///
+        /// Returns metrics showing the age in seconds of the most recent snapshot for each source.
+        /// Only present if snapshots list is not empty.
+        pub fn kopia_snapshot_age_seconds<Gauge>(&self, now: jiff::Timestamp) -> Option<impl Display> {
+            SnapshotAgeSeconds::new(self, now)
+        }
+        /// Unix timestamp of last successful snapshot
+        ///
+        /// Generates Prometheus metrics for the last successful snapshot timestamp.
+        /// Only present if snapshots list is not empty.
+        pub fn kopia_snapshot_last_success_timestamp<Gauge>(&self) -> Option<impl Display> {
+            SnapshotLastSuccessTimestamp::new(self)
+        }
+    }
+}
+define_metric_categories! {
+    /// Backup completion status
+    BACKUP_COMPLETION_STATUS: impl KopiaSnapshots {
+        /// Total errors in latest snapshot
+        ///
+        /// Returns metrics showing the total number of errors in the most recent snapshot.
+        /// Only present if snapshots list is not empty.
+        pub fn kopia_snapshot_errors_total<Gauge>(&self) -> Option<impl Display> {
+            last_snapshots::MetricLastSnapshots::new(self, |v| v.stats.error_count)
+        }
+        /// Ignored errors in latest snapshot
+        ///
+        /// Returns a string containing Prometheus-formatted metrics showing the total
+        /// number of ignored errors in the most recent snapshot. Only present if snapshots list is not empty.
+        pub fn kopia_snapshot_errors_ignored_total<Gauge>(&self) -> Option<impl Display> {
+            last_snapshots::MetricLastSnapshots::new(self, |v| v.stats.ignored_error_count)
+        }
+    }
+}
+define_metric_categories! {
+    /// Data integrity verification
+    DATA_INTEGRITY_VERIFICATION: impl KopiaSnapshots {
+        /// Number of failed files in latest snapshot
+        ///
+        /// Returns metrics showing the number of failed files in the most recent snapshot.
+        /// Only present if snapshots list is not empty.
+        pub fn kopia_snapshot_failed_files_total<Gauge>(&self) -> Option<impl Display> {
+            last_snapshots::MetricLastSnapshots::new(self, |v| v.root_entry.summ.num_failed)
+        }
+    }
+}
+define_metric_categories! {
+    /// Remaining space
+    REMAINING_SPACE: impl KopiaSnapshots {
+        /// Total size of latest snapshot in bytes
+        ///
+        /// Returns metrics showing the total size in bytes of the most recent snapshot.
+        /// Only present if snapshots list is not empty.
+        pub fn kopia_snapshot_size_bytes_total<Gauge>(&self) -> Option<impl Display> {
+            last_snapshots::MetricLastSnapshots::new(self, |v| v.stats.total_size)
+        }
+        /// Change in size from previous snapshot
+        ///
+        /// Returns metrics showing the change in bytes from the previous snapshot.
+        /// Only present if snapshots list has more than one snapshot.
+        pub fn kopia_snapshot_size_bytes_change<Gauge>(&self) -> Option<impl Display> {
+            SnapshotSizeByteChanges::new(self)
+        }
+    }
+}
+define_metric_categories! {
+    /// Pruned snapshots
+    PRUNED_SNAPSHOTS: impl KopiaSnapshots {
+        /// Number of snapshots by retention reason
+        ///
+        /// Returns metrics showing the count of snapshots for each retention reason
+        /// (e.g., "latest-1", "daily-7", etc.).
+        pub fn kopia_snapshots_by_retention<Gauge>(&self) -> impl Display {
+            let always = SnapshotsByRetention::new(self);
+            (always,)
+        }
+        /// Total number of snapshots
+        ///
+        /// Returns metrics showing the total count of all snapshots in the repository.
+        pub fn kopia_snapshots_total<Gauge>(&self) -> impl Display {
+            let always = SnapshotsTotal::new(self);
+            (always,)
+        }
+    }
+}
+define_metric_categories! {
+    /// Data quality
+    DATA_QUALITY: impl KopiaSnapshots {
+        /// Number of snapshots with unparseable sources
+        ///
+        /// Returns metrics showing the count of snapshots with unparseable sources
+        /// (invalid usernames or hostnames).
+        /// Only present if there are parsing errors.
+        pub fn kopia_snapshot_parse_errors_source<Gauge>(&self) -> Option<impl Display> {
+            SnapshotParseErrorsSource::new(self)
+        }
+        /// Number of snapshots with unparseable timestamps
+        ///
+        /// Returns metrics showing the count of snapshots with unparseable timestamps.
+        /// Only present if there are parsing errors.
+        pub fn kopia_snapshot_parse_errors_timestamp_total<Gauge>(&self) -> Option<impl Display> {
+            ParseErrorCountsTimestamp::new(self)
+        }
+    }
 }
 
 // Helpers
 mod last_snapshots;
 
-// Metric definitions
-pub mod snapshot_age_seconds;
-pub mod snapshot_errors_ignored_total;
-pub mod snapshot_errors_total;
-pub mod snapshot_failed_files_total;
-pub mod snapshot_last_success_timestamp;
-pub mod snapshot_parse_errors_source;
-pub mod snapshot_parse_errors_timestamp_total;
-pub mod snapshot_size_bytes_change;
-pub mod snapshot_size_bytes_total;
-pub mod snapshots_by_retention;
-pub mod snapshots_total;
-
-struct MetricLabel {
+/// Label (name, type, and help text) for a specific kind of metric
+pub struct MetricLabel {
     name: &'static str,
     help_text: &'static str,
     ty: MetricType,
 }
-enum MetricType {
+/// Type of a prometheus metric
+///
+/// See more details at the [Prometheus docs](https://prometheus.io/docs/concepts/metric_types/)
+pub enum MetricType {
+    /// Monotonically increasing value - can only increase or be reset to zero on restart
+    Counter,
+    /// Single numerical value that can arbitrarily go up and down
     Gauge,
 }
 
@@ -67,12 +264,18 @@ impl MetricLabel {
     ///
     /// This method should not be called directly. Use the `define_metric!` macro instead.
     #[doc(hidden)]
+    #[must_use]
     pub const fn __from_macro(name: &'static str, help_text: &'static str, ty: MetricType) -> Self {
         Self {
             name,
             help_text,
             ty,
         }
+    }
+    /// Returns the name of the metric
+    #[must_use]
+    pub fn name(&self) -> &str {
+        self.name
     }
 }
 impl Display for MetricLabel {
@@ -83,6 +286,7 @@ impl Display for MetricLabel {
             ty,
         } = self;
         let ty = match ty {
+            MetricType::Counter => "counter",
             MetricType::Gauge => "gauge",
         };
 
@@ -124,17 +328,17 @@ impl KopiaSnapshots {
         }
 
         Accumulator::new()
-            .push(Some(self.snapshots_by_retention()))
-            .push(self.snapshot_size_bytes_total())
-            .push(self.snapshot_age_seconds(now))
-            .push(self.snapshot_parse_errors_timestamp_total())
-            .push(self.snapshot_parse_errors_source())
-            .push(self.snapshot_last_success_timestamp())
-            .push(self.snapshot_errors_total())
-            .push(self.snapshot_errors_ignored_total())
-            .push(self.snapshot_failed_files_total())
-            .push(self.snapshot_size_bytes_change())
-            .push(Some(self.snapshots_total()))
+            .push(Some(self.kopia_snapshots_by_retention()))
+            .push(self.kopia_snapshot_size_bytes_total())
+            .push(self.kopia_snapshot_age_seconds(now))
+            .push(self.kopia_snapshot_parse_errors_timestamp_total())
+            .push(self.kopia_snapshot_parse_errors_source())
+            .push(self.kopia_snapshot_last_success_timestamp())
+            .push(self.kopia_snapshot_errors_total())
+            .push(self.kopia_snapshot_errors_ignored_total())
+            .push(self.kopia_snapshot_failed_files_total())
+            .push(self.kopia_snapshot_size_bytes_change())
+            .push(Some(self.kopia_snapshots_total()))
             .finish()
     }
 }

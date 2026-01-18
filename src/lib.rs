@@ -1,26 +1,28 @@
-//! ## Goals
+//! ## Purpose
 //!
 //! As a self-hosted backup user/operator, there are several aspects of backup that are easy to miss.
 //!
 //! Step one is to automate the backup, but how do you ensure it stays healthy over time?
 //!
 //! Monitoring for an unattended backup should verify these key tenets:
-//! - New snapshot health
+//! - [New snapshot health](Metrics::NEW_SNAPSHOT_HEALTH)
 //!     - the newest snapshot should be no older than a specific time threshold
-//! - Backup completion status
+//! - [Backup completion status](Metrics::BACKUP_COMPLETION_STATUS)
 //!     - verify that backup jobs complete successfully without errors
-//! - Data integrity verification
+//! - [Data integrity verification](Metrics::DATA_INTEGRITY_VERIFICATION)
 //!     - ensure snapshots are readable and restorable
-//! - Repository connectivity
-//!     - confirm connection to backup destination is maintained
-//! - Performance metrics
-//!     - track backup duration and throughput for performance degradation
-//! - Remaining space
+// //! - [Repository connectivity](Metrics::REPOSITY_CONNECTIVITY)
+// //!     - confirm connection to backup destination is maintained
+// //! - [Performance](Metrics::PERFORMANCE)
+// //!     - track backup duration and throughput for performance degradation
+//! - [Remaining space](Metrics::REMAINING_SPACE)
 //!     - `kopia` may not report free space directly, but measuring changes in total space used can signal configuration errors
-//! - Pruned snapshots
+//! - [Pruned snapshots](Metrics::PRUNED_SNAPSHOTS)
 //!     - The oldest snapshots should be pruned according to retention policy
-//! - Pruning health
-//!     - Verify that pruning operations complete successfully and maintain expected retention
+// //! - [Pruning health](Metrics::PRUNING_HEALTH)
+// //!     - Verify that pruning operations complete successfully and maintain expected retention
+//! - [Data quality](Metrics::DATA_QUALITY)
+//!     - Verify that kopia data is valid to be interpreted for metrics generation
 //!
 //! ## Metrics
 //!
@@ -29,6 +31,7 @@
 
 pub use crate::assert_contains::AssertContains;
 pub use crate::kopia::*;
+pub use crate::metrics::Metrics;
 use eyre::{Result, eyre};
 use std::time::Duration;
 
