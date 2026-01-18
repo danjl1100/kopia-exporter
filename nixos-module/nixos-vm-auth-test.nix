@@ -27,7 +27,7 @@
 
     # Verify the metrics contain expected Prometheus format
     assert "kopia_snapshots_by_retention" in metrics_output
-    assert "kopia_snapshot_total_size_bytes" in metrics_output
+    assert "kopia_snapshot_size_bytes_total" in metrics_output
 
     # Test with incorrect credentials
     wrong_auth = base64.b64encode(b"wrong:wrong").decode('ascii')
