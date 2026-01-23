@@ -11,6 +11,7 @@ use std::time::Duration;
 pub struct ServerConfig {
     command: Command,
     bind_address: String,
+    capture_stderr: bool,
 }
 
 impl ServerConfig {
@@ -28,7 +29,14 @@ impl ServerConfig {
         Ok(Self {
             command,
             bind_address,
+            capture_stderr: false,
         })
+    }
+
+    /// Enable stderr capture for this server.
+    pub fn with_stderr_capture(mut self) -> Self {
+        self.capture_stderr = true;
+        self
     }
 
     /// Add additional command line arguments.
@@ -54,13 +62,18 @@ impl ServerConfig {
 
 /// Helper for managing test server processes.
 pub struct TestServer {
-    process: Child,
+    process: Option<Child>,
     bind_address: String,
 }
 
 impl TestServer {
     /// Start a new test server with the given configuration.
     pub fn start(mut config: ServerConfig) -> Result<Self> {
+        // Configure stderr capture if requested
+        if config.capture_stderr {
+            config.command.stderr(Stdio::piped());
+        }
+
         let process = config.command.spawn()?;
         let bind_address = config.bind_address;
 
@@ -68,9 +81,24 @@ impl TestServer {
         thread::sleep(Duration::from_millis(500));
 
         Ok(Self {
-            process,
+            process: Some(process),
             bind_address,
         })
+    }
+
+    /// Kill the server and return its stderr output.
+    ///
+    /// Returns empty string if stderr wasn't captured.
+    #[track_caller]
+    pub fn kill_and_read_stderr(mut self) -> String {
+        let mut process = self.process.take().unwrap();
+
+        // Kill the process
+        let _ = process.kill();
+
+        // Get the output including stderr
+        let output = process.wait_with_output().unwrap();
+        String::from_utf8_lossy(&output.stderr).to_string()
     }
 
     /// Make an HTTP GET request to the server.
@@ -90,8 +118,10 @@ impl TestServer {
 
 impl Drop for TestServer {
     fn drop(&mut self) {
-        let _ = self.process.kill();
-        let _ = self.process.wait();
+        if let Some(ref mut process) = self.process {
+            let _ = process.kill();
+            let _ = process.wait();
+        }
     }
 }
 

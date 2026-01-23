@@ -214,3 +214,34 @@ fn test_kopia_timeout_returns_500() -> Result<()> {
 fn test_kopia_timeout_forever_returns_500() -> Result<()> {
     run_timeout_test("forever", "Forever", "timeout-forever")
 }
+
+#[test]
+fn test_timeout_prints_stdout_and_stderr() -> Result<()> {
+    // Configure server to trigger timeout and capture stderr
+    let config = ServerConfig::new(FAKE_KOPIA_BIN)?
+        .with_args(["--timeout", "0.1"])
+        .with_env("FAKE_KOPIA_WRITE_TEST_OUTPUT", "1")
+        .with_env("FAKE_KOPIA_SLEEP_FOR_SECS", "10")
+        .with_stderr_capture();
+
+    let server = TestServer::start(config)?;
+
+    // Make request that will timeout
+    let response = server.get("/metrics")?;
+    assert_eq!(response.status_code, 500, "Expected HTTP 500 on timeout");
+
+    // Kill server and read its stderr
+    let stderr_output = server.kill_and_read_stderr();
+
+    // Verify stderr contains the error message with stdout/stderr from fake-kopia
+    assert!(
+        stderr_output.contains("fake-kopia-test-stdout"),
+        "Server stderr should contain fake-kopia stdout. Stderr: {stderr_output}"
+    );
+    assert!(
+        stderr_output.contains("fake-kopia-test-stderr"),
+        "Server stderr should contain fake-kopia stderr. Stderr: {stderr_output}"
+    );
+
+    Ok(())
+}

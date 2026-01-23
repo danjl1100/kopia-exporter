@@ -158,10 +158,17 @@ impl KopiaSnapshots {
             if start.elapsed() >= timeout {
                 // Timeout exceeded, kill the process
                 let _ = child.kill();
-                let _ = child.wait();
+
+                // Capture stdout and stderr before returning error
+                let output = child.wait_with_output()?;
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+
                 return Err(eyre!(
-                    "kopia command timeout after {} seconds",
-                    timeout.as_secs_f64()
+                    "kopia command timeout after {} seconds\nstdout: {}\nstderr: {}",
+                    timeout.as_secs_f64(),
+                    stdout,
+                    stderr
                 ));
             }
             // Sleep briefly before checking again

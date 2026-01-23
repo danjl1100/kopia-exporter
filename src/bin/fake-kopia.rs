@@ -64,6 +64,12 @@ fn main() -> Result<()> {
     // Log each invocation to a file for testing purposes
     log_invocation(sleep)?;
 
+    // Write static test messages to stdout and stderr if requested
+    if std::env::var("FAKE_KOPIA_WRITE_TEST_OUTPUT").is_ok() {
+        println!("fake-kopia-test-stdout");
+        eprintln!("fake-kopia-test-stderr");
+    }
+
     if let Some(sleep) = sleep {
         match sleep {
             Sleep::ForSecs(secs) => {
