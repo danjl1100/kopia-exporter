@@ -1,4 +1,8 @@
-Currently, if the `kopia` command times out then there is no printout of stdout and stderr from that child process.
+Currently, if the `kopia` subprocess (launched in src/lib.rs `fn new_from_command`) writes too much data to stdout, then it pauses until it is terminated. Testing showed it freezes after ~58KB is read, at which point the timeout terminates it correctly, but no metrics are served.
 
-- [x] add a new test or update an existing test to verify stdout and stderr are printed out, using `src/bin/fake_kopia.rs` to provide the observable stdout and stderr strings
-- [x] implement the stdout/stderr print logic so the new/updated test passes
+- [x] add a test case that triggers `fake_kopia` to output ~1MB of JSON and verifies the metrics page is served successfully
+    - focus on testing the success, not the actual contents of the huge JSON.  Maybe entries at the beginning and end of the JSON with special names, and verify the name is present in `/metrics` with count of 2? (whichever metric is easiest to test that way)
+- [x] implement the fix (thinking to stream stdout to the JSON deserializer, but any other better fixes are welcome)
+
+Review comments:
+- [x] in the new code added `fake_kopia`, panic if the input JSON doesn't contain the expected data.  Right now, if the input changes, the new test could fail, but it's really `fake_kopia`'s fault

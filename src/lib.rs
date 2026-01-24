@@ -122,7 +122,9 @@ impl KopiaSnapshots {
         timeout: Duration,
         invalid_source_fn: impl Fn(SourceStrError) -> eyre::Result<()>,
     ) -> Result<Self> {
+        use std::io::Read;
         use std::process::{Command, Stdio};
+        use std::sync::mpsc;
         use std::time::Instant;
 
         let mut child = Command::new(kopia_bin)
@@ -131,18 +133,52 @@ impl KopiaSnapshots {
             .stderr(Stdio::piped())
             .spawn()?;
 
+        // Take ownership of stdout and stderr pipes
+        let stdout_pipe = child
+            .stdout
+            .take()
+            .ok_or_else(|| eyre!("Failed to capture stdout"))?;
+        let stderr_pipe = child
+            .stderr
+            .take()
+            .ok_or_else(|| eyre!("Failed to capture stderr"))?;
+
+        // Spawn threads to read stdout and stderr concurrently
+        // This prevents the pipe buffers from filling up and blocking the subprocess
+        let (stdout_tx, stdout_rx) = mpsc::channel();
+        let (stderr_tx, stderr_rx) = mpsc::channel();
+
+        std::thread::spawn(move || {
+            let mut stdout_pipe = stdout_pipe;
+            let mut buffer = Vec::new();
+            let _ = stdout_pipe.read_to_end(&mut buffer);
+            let _ = stdout_tx.send(buffer);
+        });
+
+        std::thread::spawn(move || {
+            let mut stderr_pipe = stderr_pipe;
+            let mut buffer = Vec::new();
+            let _ = stderr_pipe.read_to_end(&mut buffer);
+            let _ = stderr_tx.send(buffer);
+        });
+
         let start = Instant::now();
         let poll_interval = Duration::from_millis(50);
 
         // Poll the child process until it completes or timeout is reached
         loop {
             if let Some(status) = child.try_wait()? {
-                // Process completed
-                let output = child.wait_with_output()?;
+                // Process completed - get output from threads
+                let stdout_buffer = stdout_rx
+                    .recv()
+                    .map_err(|_| eyre!("Failed to receive stdout from thread"))?;
+                let stderr_buffer = stderr_rx
+                    .recv()
+                    .map_err(|_| eyre!("Failed to receive stderr from thread"))?;
 
                 if !status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let stdout = String::from_utf8_lossy(&stdout_buffer);
+                    let stderr = String::from_utf8_lossy(&stderr_buffer);
                     return Err(eyre!(
                         "kopia command failed with exit code: {}\nstdout: {}\nstderr: {}",
                         status.code().unwrap_or(-1),
@@ -151,18 +187,22 @@ impl KopiaSnapshots {
                     ));
                 }
 
-                let stdout = String::from_utf8(output.stdout)?;
+                let stdout = String::from_utf8(stdout_buffer)?;
                 return Self::new_parse_json(&stdout, invalid_source_fn);
             }
-            // Process still running, check timeout
+
+            // Check timeout
             if start.elapsed() >= timeout {
                 // Timeout exceeded, kill the process
                 let _ = child.kill();
+                let _ = child.wait();
 
-                // Capture stdout and stderr before returning error
-                let output = child.wait_with_output()?;
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
+                // Get whatever output the threads have read so far
+                let stdout_buffer = stdout_rx.recv().unwrap_or_default();
+                let stderr_buffer = stderr_rx.recv().unwrap_or_default();
+
+                let stdout = String::from_utf8_lossy(&stdout_buffer);
+                let stderr = String::from_utf8_lossy(&stderr_buffer);
 
                 return Err(eyre!(
                     "kopia command timeout after {} seconds\nstdout: {}\nstderr: {}",

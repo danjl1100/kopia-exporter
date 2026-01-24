@@ -245,3 +245,35 @@ fn test_timeout_prints_stdout_and_stderr() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_large_json_output_success() -> Result<()> {
+    // Configure server with fake-kopia generating ~1MB of JSON
+    let config = ServerConfig::new(FAKE_KOPIA_BIN)?
+        .with_env("FAKE_KOPIA_LARGE_OUTPUT_MB", "1")
+        .with_args(["--timeout", "15"]);
+
+    let server = TestServer::start(config)?;
+
+    // Request metrics - should succeed and parse the large JSON
+    let response = server.get("/metrics")?;
+    assert_eq!(
+        response.status_code, 200,
+        "Expected HTTP 200 for large JSON output"
+    );
+
+    let metrics_text = response.as_str()?;
+
+    // Verify that both the start and end markers are present in the metrics
+    // This confirms that the entire JSON was successfully parsed
+    assert!(
+        metrics_text.contains("large-output-test-start"),
+        "Expected metrics to contain the start marker from large JSON output"
+    );
+    assert!(
+        metrics_text.contains("large-output-test-end"),
+        "Expected metrics to contain the end marker from large JSON output"
+    );
+
+    Ok(())
+}
