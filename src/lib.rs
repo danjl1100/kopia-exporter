@@ -92,7 +92,27 @@ impl KopiaSnapshots {
         })
     }
 
-    /// Parses JSON content into a vector of snapshots.
+    /// Parses JSON from a reader (streaming).
+    ///
+    /// This is the primary implementation that streams JSON parsing,
+    /// avoiding buffering the entire input in memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the JSON content cannot be parsed as snapshot data, or
+    /// `invalid_source_fn` returns an error
+    pub fn new_from_reader(
+        reader: impl std::io::Read,
+        invalid_source_fn: impl Fn(SourceStrError) -> eyre::Result<()>,
+    ) -> Result<Self> {
+        let snapshots: Vec<SnapshotJson> = serde_json::from_reader(reader)?;
+        Self::new_from_snapshots(snapshots, invalid_source_fn)
+    }
+
+    /// Parses JSON content from a string.
+    ///
+    /// This is a convenience wrapper around [`Self::new_from_reader`] for tests
+    /// and cases where the JSON is already in memory as a string.
     ///
     /// # Errors
     ///
@@ -102,8 +122,7 @@ impl KopiaSnapshots {
         json_content: &str,
         invalid_source_fn: impl Fn(SourceStrError) -> eyre::Result<()>,
     ) -> Result<Self> {
-        let snapshots: Vec<SnapshotJson> = serde_json::from_str(json_content)?;
-        Self::new_from_snapshots(snapshots, invalid_source_fn)
+        Self::new_from_reader(std::io::Cursor::new(json_content), invalid_source_fn)
     }
 
     /// Executes kopia command to retrieve snapshots and parses the output.
@@ -120,7 +139,7 @@ impl KopiaSnapshots {
     pub fn new_from_command(
         kopia_bin: &str,
         timeout: Duration,
-        invalid_source_fn: impl Fn(SourceStrError) -> eyre::Result<()>,
+        invalid_source_fn: impl Fn(SourceStrError) -> eyre::Result<()> + Send + 'static,
     ) -> Result<Self> {
         use std::io::Read;
         use std::process::{Command, Stdio};
@@ -143,18 +162,16 @@ impl KopiaSnapshots {
             .take()
             .ok_or_else(|| eyre!("Failed to capture stderr"))?;
 
-        // Spawn threads to read stdout and stderr concurrently
-        // This prevents the pipe buffers from filling up and blocking the subprocess
-        let (stdout_tx, stdout_rx) = mpsc::channel();
-        let (stderr_tx, stderr_rx) = mpsc::channel();
-
+        // Spawn thread to parse JSON directly from stdout stream
+        // This avoids buffering the entire JSON in memory before parsing
+        let (result_tx, result_rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let mut stdout_pipe = stdout_pipe;
-            let mut buffer = Vec::new();
-            let _ = stdout_pipe.read_to_end(&mut buffer);
-            let _ = stdout_tx.send(buffer);
+            let result = Self::new_from_reader(stdout_pipe, invalid_source_fn);
+            let _ = result_tx.send(result);
         });
 
+        // Spawn thread to read stderr (to prevent blocking)
+        let (stderr_tx, stderr_rx) = mpsc::channel();
         std::thread::spawn(move || {
             let mut stderr_pipe = stderr_pipe;
             let mut buffer = Vec::new();
@@ -168,27 +185,25 @@ impl KopiaSnapshots {
         // Poll the child process until it completes or timeout is reached
         loop {
             if let Some(status) = child.try_wait()? {
-                // Process completed - get output from threads
-                let stdout_buffer = stdout_rx
+                // Process completed - get results from threads
+                let parse_result = result_rx
                     .recv()
-                    .map_err(|_| eyre!("Failed to receive stdout from thread"))?;
+                    .map_err(|_| eyre!("Failed to receive parse result from thread"))?;
                 let stderr_buffer = stderr_rx
                     .recv()
                     .map_err(|_| eyre!("Failed to receive stderr from thread"))?;
 
                 if !status.success() {
-                    let stdout = String::from_utf8_lossy(&stdout_buffer);
                     let stderr = String::from_utf8_lossy(&stderr_buffer);
                     return Err(eyre!(
-                        "kopia command failed with exit code: {}\nstdout: {}\nstderr: {}",
+                        "kopia command failed with exit code: {}\nstderr: {}",
                         status.code().unwrap_or(-1),
-                        stdout,
                         stderr
                     ));
                 }
 
-                let stdout = String::from_utf8(stdout_buffer)?;
-                return Self::new_parse_json(&stdout, invalid_source_fn);
+                // Return the parse result, which may contain JSON parsing errors
+                return parse_result;
             }
 
             // Check timeout
@@ -197,18 +212,19 @@ impl KopiaSnapshots {
                 let _ = child.kill();
                 let _ = child.wait();
 
-                // Get whatever output the threads have read so far
-                let stdout_buffer = stdout_rx.recv().unwrap_or_default();
-                let stderr_buffer = stderr_rx.recv().unwrap_or_default();
+                let seconds = timeout.as_secs_f64();
 
-                let stdout = String::from_utf8_lossy(&stdout_buffer);
+                // Try to get whatever output the threads have captured
+                let Ok(stderr_buffer) = stderr_rx.recv() else {
+                    return Err(eyre!(
+                        "kopia command timeout after {seconds} seconds\n<stderr is unknown>",
+                    ));
+                };
                 let stderr = String::from_utf8_lossy(&stderr_buffer);
 
+                // Note: We can't easily get partial stdout since it's being consumed by the parser
                 return Err(eyre!(
-                    "kopia command timeout after {} seconds\nstdout: {}\nstderr: {}",
-                    timeout.as_secs_f64(),
-                    stdout,
-                    stderr
+                    "kopia command timeout after {seconds} seconds\nstderr: {stderr}",
                 ));
             }
             // Sleep briefly before checking again

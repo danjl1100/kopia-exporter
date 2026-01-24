@@ -233,11 +233,8 @@ fn test_timeout_prints_stdout_and_stderr() -> Result<()> {
     // Kill server and read its stderr
     let stderr_output = server.kill_and_read_stderr();
 
-    // Verify stderr contains the error message with stdout/stderr from fake-kopia
-    assert!(
-        stderr_output.contains("fake-kopia-test-stdout"),
-        "Server stderr should contain fake-kopia stdout. Stderr: {stderr_output}"
-    );
+    // Verify stderr contains the error message with stderr from fake-kopia
+    // Note: stdout is not included because it's streamed directly to the JSON parser
     assert!(
         stderr_output.contains("fake-kopia-test-stderr"),
         "Server stderr should contain fake-kopia stderr. Stderr: {stderr_output}"
