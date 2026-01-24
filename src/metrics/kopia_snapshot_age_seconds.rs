@@ -1,4 +1,4 @@
-use crate::{KopiaSnapshots, SourceMap, metrics::DisplayMetric};
+use crate::{KopiaSnapshots, Snapshot, SourceMap, metrics::DisplayMetric};
 use std::fmt::{self};
 
 pub(super) struct SnapshotAgeSeconds(SourceMap<i64>);
@@ -14,12 +14,16 @@ impl DisplayMetric for SnapshotAgeSeconds {
 }
 impl SnapshotAgeSeconds {
     /// Implementation for [`KopiaSnapshots::kopia_snapshot_age_seconds`]
-    pub fn new(ks: &KopiaSnapshots, now: jiff::Timestamp) -> Option<Self> {
+    pub fn new(
+        ks: &KopiaSnapshots,
+        now: jiff::Timestamp,
+        select_fn: impl Fn(&[Snapshot]) -> Option<&Snapshot>,
+    ) -> Option<Self> {
         let age_seconds_map: SourceMap<_> = ks
             .snapshots_map
             .iter()
             .filter_map(|(source, snapshots)| {
-                let last = snapshots.last()?;
+                let last = select_fn(snapshots)?;
                 let age_seconds = {
                     let age = now - last.end_time?;
                     let age_seconds = age
@@ -40,9 +44,15 @@ impl SnapshotAgeSeconds {
 #[cfg(test)]
 mod tests {
     use crate::{
-        AssertContains as _,
-        test_util::{multi_map, single_map, test_snapshot},
+        AssertContains as _, SnapshotJson,
+        test_util::{multi_map, single_map},
     };
+
+    fn test_snapshot_time(end_time: impl std::fmt::Display) -> SnapshotJson {
+        let mut snapshot = crate::test_util::test_snapshot("1", 1000, &["latest-1"]);
+        snapshot.end_time = end_time.to_string();
+        snapshot
+    }
 
     #[test]
     fn snapshot_age_metrics() {
@@ -50,13 +60,15 @@ mod tests {
 
         for minutes in [30, 100] {
             let now = jiff::Timestamp::now();
-            let recent_time = now - minutes.minutes();
-            let mut snapshot = test_snapshot("1", 1000, &["latest-1"]);
-            snapshot.end_time = recent_time.to_string();
 
             let seconds = minutes * 60;
 
-            let (map, _source) = single_map(vec![snapshot]);
+            let (map, _source) = single_map(vec![
+                test_snapshot_time(now - 19.hours()),
+                test_snapshot_time(now - 18.hours()),
+                test_snapshot_time(now - 17.hours()),
+                test_snapshot_time(now - minutes.minutes()),
+            ]);
 
             map.kopia_snapshot_age_seconds(now)
                 .expect("nonempty")
@@ -81,12 +93,15 @@ mod tests {
 
     #[test]
     fn snapshot_age_metric_invalid_time() {
-        let mut snapshot = test_snapshot("1", 1000, &["latest-1"]);
-        snapshot.end_time = "invalid-time".to_string();
+        let snapshot = test_snapshot_time("invalid-time");
 
         let now = jiff::Timestamp::now();
 
-        let (map, _source) = single_map(vec![snapshot]);
+        let (map, _source) = single_map(vec![
+            test_snapshot_time(now),
+            test_snapshot_time(now),
+            snapshot,
+        ]);
 
         let age_metrics = map.kopia_snapshot_age_seconds(now);
         assert!(age_metrics.is_none());
@@ -106,15 +121,22 @@ mod tests {
         let age1 = 45.minutes();
         let age2 = 120.minutes();
 
-        let mut snapshot1 = test_snapshot("1", 1000, &["latest-1"]);
-        snapshot1.end_time = (now - age1).to_string();
-
-        let mut snapshot2 = test_snapshot("2", 2000, &["latest-1"]);
-        snapshot2.end_time = (now - age2).to_string();
+        let snapshots_1 = vec![
+            test_snapshot_time(now - 19.hours()),
+            test_snapshot_time(now - 18.hours()),
+            test_snapshot_time(now - 17.hours()),
+            test_snapshot_time(now - age1),
+        ];
+        let snapshots_2 = vec![
+            test_snapshot_time(now - 19.hours()),
+            test_snapshot_time(now - 18.hours()),
+            test_snapshot_time(now - 17.hours()),
+            test_snapshot_time(now - age2),
+        ];
 
         let (map, _sources) = multi_map(vec![
-            ("alice", "hostA", "/data", vec![snapshot1]),
-            ("bob", "hostB", "/backup", vec![snapshot2]),
+            ("alice", "hostA", "/data", snapshots_1),
+            ("bob", "hostB", "/backup", snapshots_2),
         ]);
 
         map.kopia_snapshot_age_seconds(now)

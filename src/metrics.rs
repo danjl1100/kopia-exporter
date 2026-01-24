@@ -16,7 +16,7 @@ define_metric_categories! {
         /// Returns metrics showing the age in seconds of the most recent snapshot for each source.
         /// Only present if snapshots list is not empty.
         pub fn kopia_snapshot_age_seconds<Gauge>(&self, now: jiff::Timestamp) -> Option<impl Display> {
-            SnapshotAgeSeconds::new(self, now)
+            SnapshotAgeSeconds::new(self, now, <[crate::Snapshot]>::last)
         }
         /// Unix timestamp of last successful snapshot
         ///
