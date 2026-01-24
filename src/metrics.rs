@@ -95,6 +95,14 @@ define_metric_categories! {
             let always = SnapshotsTotal::new(self);
             (always,)
         }
+        /// Age of oldest retained snapshot in seconds
+        ///
+        /// Returns metrics showing the age in seconds of the oldest retained snapshot for each source.
+        /// Only present if snapshots list is not empty.
+        pub fn kopia_snapshot_oldest_age_seconds<Gauge>(&self, now: jiff::Timestamp) -> Option<impl Display> {
+            use kopia_snapshot_age_seconds::SnapshotAgeSeconds;
+            SnapshotAgeSeconds::new(self, now, <[crate::Snapshot]>::first)
+        }
     }
 }
 define_metric_categories! {
@@ -154,6 +162,7 @@ impl KopiaSnapshots {
             .push(Some(self.kopia_snapshots_by_retention()))
             .push(self.kopia_snapshot_size_bytes_total())
             .push(self.kopia_snapshot_age_seconds(now))
+            .push(self.kopia_snapshot_oldest_age_seconds(now))
             .push(self.kopia_snapshot_parse_errors_timestamp_total())
             .push(self.kopia_snapshot_parse_errors_source())
             .push(self.kopia_snapshot_last_success_timestamp())
@@ -184,6 +193,7 @@ mod tests {
             "# TYPE kopia_snapshots_by_retention gauge",
             "# TYPE kopia_snapshot_size_bytes_total gauge",
             "# TYPE kopia_snapshot_age_seconds gauge",
+            "# TYPE kopia_snapshot_oldest_age_seconds gauge",
             "# TYPE kopia_snapshot_errors_total gauge",
             "# TYPE kopia_snapshot_failed_files_total gauge",
             "# TYPE kopia_snapshots_total gauge",
@@ -243,6 +253,10 @@ mod tests {
             # HELP kopia_snapshot_age_seconds Age of newest snapshot in seconds
             # TYPE kopia_snapshot_age_seconds gauge
             kopia_snapshot_age_seconds{source="kopia-system@milton:/persist-home"} 334678
+
+            # HELP kopia_snapshot_oldest_age_seconds Age of oldest retained snapshot in seconds
+            # TYPE kopia_snapshot_oldest_age_seconds gauge
+            kopia_snapshot_oldest_age_seconds{source="kopia-system@milton:/persist-home"} 6735478
 
             # HELP kopia_snapshot_last_success_timestamp Unix timestamp of last successful snapshot
             # TYPE kopia_snapshot_last_success_timestamp gauge
