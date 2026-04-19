@@ -26,6 +26,11 @@ unsafe_code = "forbid"
 # docs!
 broken_intra_doc_links = "deny"
 
+# NOTE: used for `cargo-vet` check without src dir
+[[bin]]
+name = "kopia-exporter"
+path = "src/main.rs"
+
 [dependencies]
 base64 = "0.22.1"
 clap = { version = "4.5.45", features = ["derive"] }

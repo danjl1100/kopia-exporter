@@ -88,6 +88,39 @@
           cargo fmt --check
           touch $out
         '';
+
+      cargo-vet = let
+        kopia-exporter-pkg = pkgs.callPackage ./. {};
+        inherit (pkgs) lib;
+      in
+        pkgs.stdenvNoCC.mkDerivation {
+          name = "cargo-vet-check";
+          src = lib.cleanSourceWith {
+            src = ./.;
+            filter = path: type: let
+              baseName = baseNameOf path;
+              relativePath = lib.removePrefix (toString ./. + "/") (toString path);
+            in
+              # Allow root Rust configuration files
+              baseName
+              == "Cargo.toml"
+              || baseName == "Cargo.lock"
+              # Allow directories and contents for cargo-vet inputs
+              || baseName == "supply-chain"
+              || lib.hasPrefix "supply-chain/" relativePath;
+          };
+          phases = ["unpackPhase" "buildPhase"];
+          nativeBuildInputs = [
+            pkgs.cargo
+            pkgs.cargo-vet
+            pkgs.rustPlatform.cargoSetupHook # configures .cargo/config with vendored sources
+          ];
+          cargoDeps = kopia-exporter-pkg.cargoDeps;
+          buildPhase = ''
+            cargo vet check --locked --frozen
+            touch $out
+          '';
+        };
     });
 
     devShells = forEachSystem (system: let

@@ -1,0 +1,162 @@
+
+# cargo-vet config file
+
+[cargo-vet]
+version = "0.10"
+
+[imports.danjl1100]
+url = "https://raw.githubusercontent.com/danjl1100/supply-chain/main/audits.toml"
+
+[imports.google]
+url = "https://raw.githubusercontent.com/google/supply-chain/main/audits.toml"
+
+[imports.mozilla]
+url = "https://raw.githubusercontent.com/mozilla/supply-chain/main/audits.toml"
+
+[[exemptions.anstream]]
+version = "0.6.20"
+criteria = "safe-to-deploy"
+
+[[exemptions.anstyle]]
+version = "1.0.11"
+criteria = "safe-to-deploy"
+
+[[exemptions.bitflags]]
+version = "2.9.3"
+criteria = "safe-to-run"
+
+[[exemptions.clap]]
+version = "4.5.45"
+criteria = "safe-to-deploy"
+
+[[exemptions.clap_builder]]
+version = "4.5.44"
+criteria = "safe-to-deploy"
+
+[[exemptions.clap_derive]]
+version = "4.5.45"
+criteria = "safe-to-deploy"
+
+[[exemptions.eyre]]
+version = "0.6.12"
+criteria = "safe-to-deploy"
+
+[[exemptions.fastrand]]
+version = "2.3.0"
+criteria = "safe-to-run"
+
+[[exemptions.insta]]
+version = "1.43.1"
+criteria = "safe-to-run"
+
+[[exemptions.jiff]]
+version = "0.2.15"
+criteria = "safe-to-deploy"
+
+[[exemptions.jiff-static]]
+version = "0.2.15"
+criteria = "safe-to-deploy"
+
+[[exemptions.libc]]
+version = "0.2.175"
+criteria = "safe-to-run"
+
+[[exemptions.linux-raw-sys]]
+version = "0.9.4"
+criteria = "safe-to-run"
+
+[[exemptions.log]]
+version = "0.4.27"
+criteria = "safe-to-deploy"
+
+[[exemptions.memchr]]
+version = "2.7.5"
+criteria = "safe-to-deploy"
+
+[[exemptions.minreq]]
+version = "2.14.0"
+criteria = "safe-to-run"
+
+[[exemptions.once_cell]]
+version = "1.21.3"
+criteria = "safe-to-deploy"
+
+[[exemptions.portable-atomic]]
+version = "1.11.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.portable-atomic-util]]
+version = "0.2.4"
+criteria = "safe-to-deploy"
+
+[[exemptions.r-efi]]
+version = "5.3.0"
+criteria = "safe-to-run"
+
+[[exemptions.rustix]]
+version = "1.0.8"
+criteria = "safe-to-run"
+
+[[exemptions.ryu]]
+version = "1.0.20"
+criteria = "safe-to-deploy"
+
+[[exemptions.serde_json]]
+version = "1.0.143"
+criteria = "safe-to-deploy"
+
+[[exemptions.syn]]
+version = "2.0.106"
+criteria = "safe-to-deploy"
+
+[[exemptions.tempfile]]
+version = "3.21.0"
+criteria = "safe-to-run"
+
+[[exemptions.wasi]]
+version = "0.14.2+wasi-0.2.4"
+criteria = "safe-to-run"
+
+[[exemptions.windows-sys]]
+version = "0.60.2"
+criteria = "safe-to-deploy"
+
+[[exemptions.windows-targets]]
+version = "0.53.3"
+criteria = "safe-to-deploy"
+
+[[exemptions.windows_aarch64_gnullvm]]
+version = "0.53.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.windows_aarch64_msvc]]
+version = "0.53.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.windows_i686_gnu]]
+version = "0.53.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.windows_i686_gnullvm]]
+version = "0.53.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.windows_i686_msvc]]
+version = "0.53.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.windows_x86_64_gnu]]
+version = "0.53.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.windows_x86_64_gnullvm]]
+version = "0.53.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.windows_x86_64_msvc]]
+version = "0.53.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.wit-bindgen-rt]]
+version = "0.39.0"
+criteria = "safe-to-run"
